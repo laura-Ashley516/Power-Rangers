@@ -1,0 +1,787 @@
+
+<!DOCTYPE html>
+<html>
+<head>
+
+<meta charset="UTF-8">
+
+<title>Barbara's Schedule</title>
+
+<style>
+
+* {
+    box-sizing: border-box;
+}
+
+body {
+    font-family: Arial, sans-serif;
+    background: #f5f5f5;
+    margin: 0;
+    padding: 20px;
+    color: #111;
+}
+
+.container {
+    max-width: 1000px;
+    margin: auto;
+}
+
+h1 {
+    text-align: center;
+    margin-bottom: 5px;
+}
+
+.subtitle {
+    text-align: center;
+    color: #555;
+    margin-bottom: 25px;
+}
+
+
+/* Bluetooth */
+
+.connection {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+button {
+    border: none;
+    border-radius: 8px;
+    padding: 12px 18px;
+    font-size: 16px;
+    cursor: pointer;
+}
+
+.connect {
+    background: #333;
+    color: white;
+}
+
+.send {
+    background: #222;
+    color: white;
+    width: 100%;
+    font-size: 18px;
+    padding: 16px;
+    margin-top: 20px;
+}
+
+.status {
+    margin-top: 12px;
+    font-weight: bold;
+}
+
+
+/* Add activity */
+
+.add-box {
+    background: white;
+    padding: 20px;
+    border-radius: 12px;
+    margin-bottom: 20px;
+}
+
+.form-row {
+    display: flex;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+
+select,
+input {
+    padding: 12px;
+    font-size: 16px;
+    border: 1px solid #ccc;
+    border-radius: 8px;
+}
+
+.activity-input {
+    flex: 1;
+    min-width: 200px;
+}
+
+.add-button {
+    background: #ddd;
+}
+
+
+/* Energy buttons */
+
+.energy {
+    display: flex;
+    gap: 8px;
+}
+
+.energy button {
+    border: 2px solid transparent;
+}
+
+.green {
+    background: #b7e4c7;
+}
+
+.yellow {
+    background: #f9e79f;
+}
+
+.red {
+    background: #f4b6b6;
+}
+
+.energy button.selected {
+    border: 3px solid #111;
+}
+
+
+/* Week */
+
+.week {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 15px;
+}
+
+.day {
+    background: white;
+    padding: 15px;
+    border-radius: 12px;
+    min-height: 130px;
+}
+
+.day h2 {
+    margin-top: 0;
+    font-size: 20px;
+}
+
+.period-label {
+    margin: 12px 0 4px;
+    font-size: 13px;
+    font-weight: bold;
+    color: #555;
+    letter-spacing: .04em;
+}
+.activity {
+    padding: 8px 10px;
+    border-radius: 8px;
+    margin-top: 8px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 10px;
+}
+
+.remove {
+    background: rgba(255,255,255,0.7);
+    padding: 5px 8px;
+    font-size: 13px;
+}
+
+.empty {
+    color: #777;
+    font-size: 14px;
+}
+
+
+/* Mobile */
+
+@media (max-width: 650px) {
+
+    .week {
+        grid-template-columns: 1fr;
+    }
+
+    .form-row {
+        flex-direction: column;
+    }
+
+    .energy {
+        flex-direction: column;
+    }
+
+}
+
+</style>
+
+</head>
+
+
+<body>
+
+<div class="container">
+
+<h1>Barbara's Schedule</h1>
+
+<div class="subtitle">
+Plan your week using simple energy levels
+</div>
+
+
+<!-- ========================================= -->
+<!-- BLUETOOTH -->
+<!-- ========================================= -->
+
+<div class="connection">
+
+<h2>ESP32</h2>
+
+<button id="connectButton" class="connect">
+Connect to ESP32
+</button>
+
+<div id="status" class="status">
+Not connected
+</div>
+
+</div>
+
+
+<!-- ========================================= -->
+<!-- ADD ACTIVITY -->
+<!-- ========================================= -->
+
+<div class="add-box">
+
+<h2>Add Activity</h2>
+
+<div class="form-row">
+
+<select id="day">
+
+<option value="monday">Monday</option>
+<option value="tuesday">Tuesday</option>
+<option value="wednesday">Wednesday</option>
+<option value="thursday">Thursday</option>
+<option value="friday">Friday</option>
+<option value="saturday">Saturday</option>
+<option value="sunday">Sunday</option>
+
+</select>
+
+<select id="period" aria-label="Time of day">
+<option value="MORNING">Morning</option>
+<option value="AFTERNOON">Afternoon</option>
+<option value="EVENING">Evening</option>
+</select>
+
+<input
+id="activity"
+class="activity-input"
+placeholder="Activity name"
+/>
+
+</div>
+
+
+<br>
+
+
+<div class="energy">
+
+<button
+class="green selected"
+data-energy="green">
+
+🟢 Green — Easy
+
+</button>
+
+
+<button
+class="yellow"
+data-energy="yellow">
+
+🟡 Yellow — Moderate
+
+</button>
+
+
+<button
+class="red"
+data-energy="red">
+
+🔴 Red — Difficult
+
+</button>
+
+</div>
+
+
+<br>
+
+
+<button
+id="addButton"
+class="add-button">
+
++ Add Activity
+
+</button>
+
+</div>
+
+
+<!-- ========================================= -->
+<!-- WEEK -->
+<!-- ========================================= -->
+
+<div id="week" class="week"></div>
+
+
+<!-- ========================================= -->
+<!-- SEND -->
+<!-- ========================================= -->
+
+<button
+id="sendButton"
+class="send">
+
+SEND SCHEDULE TO ESP32
+
+</button>
+
+</div>
+
+
+<script>
+
+
+// ==================================================
+// BLUETOOTH UUIDs
+// ==================================================
+
+const SERVICE_UUID =
+"12345678-1234-1234-1234-1234567890ab";
+
+const RX_UUID =
+"12345678-1234-1234-1234-1234567890ac";
+
+const TX_UUID =
+"12345678-1234-1234-1234-1234567890ad";
+
+
+let device = null;
+
+let rxCharacteristic = null;
+
+let txCharacteristic = null;
+
+
+// ==================================================
+// SCHEDULE
+// ==================================================
+
+const days = [
+    "monday",
+    "tuesday",
+    "wednesday",
+    "thursday",
+    "friday",
+    "saturday",
+    "sunday"
+];
+
+
+let schedule = {
+
+    monday: [],
+    tuesday: [],
+    wednesday: [],
+    thursday: [],
+    friday: [],
+    saturday: [],
+    sunday: []
+
+};
+
+
+// ==================================================
+// ENERGY
+// ==================================================
+
+let selectedEnergy = "green";
+
+
+const energyButtons =
+document.querySelectorAll(".energy button");
+
+
+energyButtons.forEach(button => {
+
+    button.addEventListener("click", () => {
+
+        energyButtons.forEach(b =>
+            b.classList.remove("selected")
+        );
+
+        button.classList.add("selected");
+
+        selectedEnergy =
+            button.dataset.energy;
+
+    });
+
+});
+
+
+// ==================================================
+// DISPLAY WEEK
+// ==================================================
+
+function displaySchedule() {
+    const week = document.getElementById("week");
+    week.innerHTML = "";
+
+    const periodOrder = [
+        { key: "MORNING", label: "MORNING" },
+        { key: "AFTERNOON", label: "AFTERNOON" },
+        { key: "EVENING", label: "EVENING" }
+    ];
+
+    days.forEach(day => {
+        const box = document.createElement("div");
+        box.className = "day";
+
+        const title = document.createElement("h2");
+        title.textContent = day.charAt(0).toUpperCase() + day.slice(1);
+        box.appendChild(title);
+
+        if (schedule[day].length === 0) {
+            const empty = document.createElement("div");
+            empty.className = "empty";
+            empty.textContent = "No activities";
+            box.appendChild(empty);
+        }
+
+        periodOrder.forEach(period => {
+            const matches = schedule[day]
+                .map((activity, index) => ({ activity, index }))
+                .filter(entry => (entry.activity.period || "MORNING") === period.key);
+
+            if (!matches.length) return;
+
+            const label = document.createElement("div");
+            label.className = "period-label";
+            label.textContent = period.label;
+            box.appendChild(label);
+
+            matches.forEach(({ activity, index }) => {
+                const item = document.createElement("div");
+                item.className = "activity " + activity.energy;
+
+                const name = document.createElement("span");
+                name.textContent = activity.name;
+                name.style.overflowWrap = "anywhere";
+
+                const remove = document.createElement("button");
+                remove.className = "remove";
+                remove.textContent = "Remove";
+                remove.setAttribute("aria-label", "Remove " + activity.name);
+                remove.onclick = () => {
+                    schedule[day].splice(index, 1);
+                    displaySchedule();
+                };
+
+                item.appendChild(name);
+                item.appendChild(remove);
+                box.appendChild(item);
+            });
+        });
+
+        week.appendChild(box);
+    });
+}
+
+// ADD ACTIVITY
+// ==================================================
+
+document
+.getElementById("addButton")
+.addEventListener("click", () => {
+
+
+    const day =
+    document.getElementById("day").value;
+
+    const period =
+    document.getElementById("period").value;
+
+    const activityInput =
+    document.getElementById("activity");
+
+
+    const name =
+    activityInput.value.trim();
+
+
+    if (name === "") {
+
+        alert(
+            "Please enter an activity."
+        );
+
+        return;
+
+    }
+
+
+    schedule[day].push({
+        name: name,
+        period: period,
+        energy: selectedEnergy
+    });
+
+
+    activityInput.value = "";
+
+
+    displaySchedule();
+
+});
+
+
+// ==================================================
+// CONNECT ESP32
+// ==================================================
+
+document
+.getElementById("connectButton")
+.addEventListener("click",
+async () => {
+
+
+    try {
+
+        document.getElementById("status")
+        .textContent =
+        "Looking for ESP32...";
+
+
+        device =
+        await navigator.bluetooth.requestDevice({
+
+            filters: [
+                {
+                    name:
+                    "Barbara Scheduler"
+                }
+            ],
+
+            optionalServices: [
+                SERVICE_UUID
+            ]
+
+        });
+
+
+        document.getElementById("status")
+        .textContent =
+        "Connecting...";
+
+
+        const server =
+        await device.gatt.connect();
+
+
+        const service =
+        await server.getPrimaryService(
+            SERVICE_UUID
+        );
+
+
+        rxCharacteristic =
+        await service.getCharacteristic(
+            RX_UUID
+        );
+
+
+        txCharacteristic =
+        await service.getCharacteristic(
+            TX_UUID
+        );
+
+
+        await txCharacteristic
+        .startNotifications();
+
+
+        txCharacteristic
+        .addEventListener(
+            "characteristicvaluechanged",
+            event => {
+
+                const decoder =
+                new TextDecoder();
+
+
+                const message =
+                decoder.decode(
+                    event.target.value
+                );
+
+
+                document.getElementById(
+                    "status"
+                ).textContent =
+                "ESP32: " + message;
+
+            }
+        );
+
+
+        document.getElementById(
+            "status"
+        ).textContent =
+        "Connected ✓";
+
+
+    }
+
+    catch(error) {
+
+        console.error(error);
+
+
+        document.getElementById(
+            "status"
+        ).textContent =
+        "Connection failed";
+
+    }
+
+});
+
+
+// ==================================================
+// SEND COMPLETE SCHEDULE
+// ==================================================
+
+document
+.getElementById("sendButton")
+.addEventListener("click",
+async () => {
+
+
+    if (!rxCharacteristic) {
+
+        alert(
+            "Connect to the ESP32 first."
+        );
+
+        return;
+
+    }
+
+
+    try {
+
+
+        const messages = [];
+
+
+        // Start
+
+        messages.push(
+            "SCHEDULE_START"
+        );
+
+
+        // Activities
+
+        days.forEach(day => {
+
+
+            schedule[day].forEach(
+            activity => {
+
+
+                messages.push(
+
+                    day
+                    + "|"
+                    + (activity.period || "MORNING")
+                    + "|"
+                    + activity.name
+                    + "|"
+                    + activity.energy
+
+                );
+
+            });
+
+        });
+
+
+        // End
+
+        messages.push(
+            "SCHEDULE_END"
+        );
+
+
+        const encoder =
+        new TextEncoder();
+
+
+        for (
+            const message
+            of messages
+        ) {
+
+
+            const data =
+            encoder.encode(message);
+
+
+            await rxCharacteristic
+            .writeValue(data);
+
+
+            await new Promise(
+                resolve =>
+                setTimeout(
+                    resolve,
+                    120
+                )
+            );
+
+        }
+
+
+        document.getElementById(
+            "status"
+        ).textContent =
+        "Schedule sent ✓";
+
+
+    }
+
+    catch(error) {
+
+        console.error(error);
+
+
+        document.getElementById(
+            "status"
+        ).textContent =
+        "Error sending schedule";
+
+    }
+
+});
+
+
+// ==================================================
+// START
+// ==================================================
+
+displaySchedule();
+
+
+</script>
+
+</body>
+
+</html>

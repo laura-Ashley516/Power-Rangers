@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accessible Weekly Planner</title>
+<style>
+:root{--cream:#fbf8ef;--paper:#fffefa;--ink:#202820;--muted:#59635a;--line:#d9ded2;--green:#b8e2c3;--green-ink:#164b2b;--yellow:#f8e5a0;--yellow-ink:#5c4700;--red:#f2b9b5;--red-ink:#711e1a;--accent:#244d38;--focus:#1a63c5}
+*{box-sizing:border-box}body{margin:0;background:var(--cream);color:var(--ink);font:17px/1.45 system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}button,input,select,textarea{font:inherit}button{cursor:pointer;border:1px solid #aeb8aa;border-radius:10px;background:#fffefa;color:var(--ink);padding:10px 14px;min-height:44px;font-weight:650}button:hover{filter:brightness(.97)}button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible,[tabindex]:focus-visible{outline:3px solid var(--focus);outline-offset:2px}button.primary{background:var(--accent);color:white;border-color:var(--accent)}button.danger{color:#7a201c;border-color:#c9827d}button.small{min-height:34px;padding:5px 9px;font-size:14px}.app{max-width:1500px;margin:auto;padding:18px}.topbar{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:18px}.brand{display:flex;gap:12px;align-items:center}.brand-mark{width:48px;height:48px;border-radius:14px;background:var(--accent);color:white;display:grid;place-items:center;font-size:25px}.brand h1{font-size:clamp(22px,3vw,31px);margin:0}.brand p{margin:2px 0 0;color:var(--muted);font-size:14px}.top-actions{display:flex;gap:8px;flex-wrap:wrap}.layout{display:grid;grid-template-columns:225px minmax(0,1fr);gap:18px}.sidebar,.panel,.main-panel{background:var(--paper);border:1px solid var(--line);border-radius:16px}.sidebar{padding:12px;height:max-content;position:sticky;top:12px}.navbtn{width:100%;display:flex;gap:10px;align-items:center;text-align:left;border:0;background:transparent;margin:3px 0}.navbtn.active{background:#e7eee4;color:#183f2b}.navicon{width:25px;text-align:center}.side-note{margin:16px 8px 6px;color:var(--muted);font-size:13px}.main-panel{padding:20px;min-width:0}.viewhead{display:flex;justify-content:space-between;align-items:flex-start;gap:14px;margin-bottom:16px}.viewhead h2{font-size:25px;margin:0 0 4px}.viewhead p{margin:0;color:var(--muted)}.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.badge{border-radius:999px;padding:5px 10px;font-size:13px;font-weight:750;border:1px solid var(--line);background:#f4f4ed}.badge.good{background:#e3f3e7;color:#1d5733}.week-toolbar{display:flex;justify-content:space-between;gap:10px;align-items:center;flex-wrap:wrap;margin-bottom:14px}.week-grid{display:grid;grid-template-columns:repeat(7,minmax(155px,1fr));gap:10px;overflow-x:auto;padding:2px 2px 10px}.day-col{border:1px solid var(--line);border-radius:12px;padding:10px;background:#fffefa;min-width:155px}.day-title{display:flex;justify-content:space-between;align-items:center;font-weight:800;margin-bottom:8px}.day-date{font-size:12px;color:var(--muted);font-weight:500}.slot{border:1.5px dashed #c8d0c4;border-radius:10px;padding:8px;min-height:104px;margin-top:8px;background:#fbfaf4;transition:background .12s,border-color .12s}.slot.drop-target{background:#e9f3e9;border-color:#39744e;border-style:solid}.slot-label{font-size:12px;letter-spacing:.04em;text-transform:uppercase;color:#515c51;font-weight:800;margin-bottom:6px}.slot-hint{font-size:12px;color:#778076}.activity-card{border-radius:9px;padding:8px;margin:6px 0;display:flex;gap:7px;align-items:flex-start;justify-content:space-between;border:1px solid transparent;cursor:grab;touch-action:pan-y;user-select:none}.activity-card:active{cursor:grabbing}.activity-card.green{background:var(--green);color:var(--green-ink)}.activity-card.yellow{background:var(--yellow);color:var(--yellow-ink)}.activity-card.red{background:var(--red);color:var(--red-ink)}.activity-card.selected{outline:3px solid var(--focus);outline-offset:1px}.activity-text{min-width:0;overflow-wrap:anywhere}.activity-name{font-size:14px;font-weight:800}.activity-meta{font-size:11px;opacity:.9;margin-top:2px}.energy-word{font-size:10px;font-weight:900;letter-spacing:.03em;text-transform:uppercase}.activity-controls{display:flex;gap:3px;flex-shrink:0}.activity-controls button{min-height:25px;padding:1px 6px;font-size:12px;border-color:#ffffff99;background:#ffffffbb}.fixed-lock{font-size:11px;font-weight:800}.alert{display:flex;align-items:flex-start;gap:10px;background:#f8f1dd;border:1px solid #d8c78c;border-radius:11px;padding:12px;margin:0 0 12px}.alert p{margin:0;flex:1}.alert strong{display:block}.alert button{padding:5px 9px;min-height:34px}.two-col{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(260px,.75fr);gap:16px}.panel{padding:16px;margin-bottom:14px}.panel h3{margin:0 0 10px;font-size:19px}.field{display:flex;flex-direction:column;gap:5px;min-width:150px;flex:1}.field label{font-size:14px;font-weight:750}.field input,.field select,.field textarea{width:100%;border:1px solid #b9c2b6;border-radius:9px;background:white;padding:10px;min-height:44px;color:var(--ink)}.energy-options{display:flex;gap:8px;flex-wrap:wrap}.energy-choice{display:flex;align-items:center;gap:7px}.energy-choice input{width:18px;height:18px;min-height:0}.dot{display:inline-block;width:13px;height:13px;border:2px solid currentColor;border-radius:3px}.dot.green{background:var(--green);color:var(--green-ink)}.dot.yellow{background:var(--yellow);color:var(--yellow-ink);border-radius:50%}.dot.red{background:var(--red);color:var(--red-ink);transform:rotate(45deg)}.library-list{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:10px}.library-item{border:1px solid var(--line);border-radius:12px;padding:12px;background:white}.library-item h4{margin:0 0 5px}.library-item p{font-size:13px;color:var(--muted);margin:0 0 10px}.empty-state{color:var(--muted);font-size:13px;padding:8px 0}.notice{padding:10px 12px;background:#edf3e9;border-radius:9px;color:#254a30;margin:10px 0}.muted{color:var(--muted)}.hidden{display:none!important}.day-list{display:grid;gap:12px}.daily-slot{border:1px solid var(--line);border-radius:12px;padding:12px;background:#fffefa}.daily-slot .slot{min-height:70px}.device-status{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.status-dot{width:10px;height:10px;border-radius:50%;background:#b54b43}.status-dot.on{background:#32824c}.setting-row{display:flex;justify-content:space-between;align-items:center;gap:16px;border-bottom:1px solid var(--line);padding:14px 0}.setting-row:last-child{border-bottom:0}.setting-row p{margin:3px 0 0;color:var(--muted);font-size:14px}.switch{width:50px;height:28px;min-height:28px;padding:0;border-radius:99px;background:#d5d9d0;position:relative}.switch::after{content:"";position:absolute;width:20px;height:20px;left:4px;top:3px;border-radius:50%;background:white;transition:transform .15s}.switch[aria-checked="true"]{background:#39744e}.switch[aria-checked="true"]::after{transform:translateX(21px)}.footer-note{font-size:12px;color:var(--muted);margin-top:14px}.toast{position:fixed;bottom:18px;left:50%;transform:translateX(-50%);background:#1e3527;color:white;padding:12px 18px;border-radius:12px;box-shadow:0 6px 22px #0002;z-index:20;max-width:90vw}.modal-backdrop{position:fixed;inset:0;background:#17251c77;display:grid;place-items:center;padding:16px;z-index:30}.modal{background:var(--paper);border-radius:16px;padding:20px;width:min(520px,100%);max-height:90vh;overflow:auto}.modal h2{margin-top:0}.modal-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:16px}.print-only{display:none}.high-contrast{--cream:#fff;--paper:#fff;--ink:#000;--muted:#222;--line:#555;--green:#b6edc6;--yellow:#ffe68a;--red:#ffb0aa;--accent:#003b20}.large-text{font-size:19px}
+@media(max-width:900px){.layout{grid-template-columns:1fr}.sidebar{position:static;display:flex;overflow-x:auto;gap:4px}.navbtn{white-space:nowrap;width:auto;flex-shrink:0}.side-note{display:none}.two-col{grid-template-columns:1fr}.week-grid{grid-template-columns:repeat(7,minmax(170px,1fr))}}
+@media(max-width:560px){.app{padding:10px}.topbar{align-items:flex-start;flex-direction:column}.main-panel{padding:12px}.viewhead{flex-direction:column}.sidebar{padding:6px}.navbtn{padding:9px}.brand p{max-width:280px}}
+@media print{body{background:white;font-size:12px}.app{max-width:none;padding:0}.topbar,.sidebar,.top-actions,.week-toolbar,.activity-controls,.no-print,.footer-note{display:none!important}.layout{display:block}.main-panel{border:0;padding:0}.week-grid{display:grid;grid-template-columns:repeat(4,1fr);overflow:visible}.day-col{break-inside:avoid;min-width:0}.slot{min-height:55px}.print-only{display:block}.activity-card{print-color-adjust:exact;-webkit-print-color-adjust:exact}}
+
+/* Calm-layout refinement: clearer hierarchy, less visual noise, and more breathing room. */
+:root{--cream:#f5f5ef;--paper:#ffffff;--ink:#202a22;--muted:#657066;--line:#e0e5dc;--accent:#244d38}
+body[data-theme="lavender"]{--cream:#f7f3fb;--paper:#fffefe;--line:#e4dceb;--accent:#655080;--focus:#7354a6}
+body[data-theme="ocean"]{--cream:#eff6fa;--paper:#ffffff;--line:#d7e4eb;--accent:#285b76;--focus:#176a9a}
+body[data-theme="peach"]{--cream:#fff5ef;--paper:#fffefd;--line:#eedfd5;--accent:#8b5138;--focus:#a54f25}
+body{font-size:16px;line-height:1.5}
+.app{max-width:1600px;padding:22px 26px}
+.topbar{padding:4px 2px 18px;border-bottom:1px solid var(--line);margin-bottom:20px}
+.brand-mark{width:44px;height:44px;border-radius:13px}
+.brand h1{letter-spacing:-.035em;font-size:29px}
+.layout{grid-template-columns:205px minmax(0,1fr);gap:22px}
+.sidebar{padding:9px;border-radius:14px;border-color:transparent;background:transparent;position:sticky;top:16px}
+.navbtn{padding:12px 13px;border-radius:10px;color:#49554a;font-weight:600;margin:2px 0}
+.navbtn.active{background:#e4ede3;color:#214d32;font-weight:750}
+.navicon{font-size:18px}
+.side-note{margin:18px 10px 0;padding-top:14px;border-top:1px solid var(--line);line-height:1.5}
+.main-panel{padding:25px;border-radius:17px;border-color:#e8eae3;box-shadow:0 3px 14px #263a2510}
+.viewhead{margin-bottom:22px;align-items:center}
+.viewhead h2{font-size:27px;letter-spacing:-.025em}
+.viewhead p{font-size:15px;margin-top:3px}
+button{border-color:#d2d9cf;border-radius:9px;padding:9px 13px;font-size:15px}
+button.primary{background:#28543b}
+.badge{background:#f6f7f2;border-color:#e3e7df;color:#455347;font-size:12px;padding:5px 9px}
+.week-toolbar{padding:11px 0 14px;border-top:1px solid #edf0e9;margin-bottom:10px}
+.week-grid{gap:9px;padding-bottom:8px;scrollbar-color:#c6d0c3 transparent}
+.day-col{padding:10px 8px;border-color:#e4e8e0;border-radius:12px;background:#fff;min-width:150px}
+.day-title{font-size:14px;padding:1px 3px 7px;border-bottom:1px solid #eef0ea;margin-bottom:7px}
+.day-date{background:#f3f5ef;border-radius:6px;padding:2px 5px;font-size:11px}
+.slot{background:#fafbf8;border:1px solid #e7ebe3;border-radius:9px;padding:6px;min-height:90px;margin-top:7px}
+.slot-label{font-size:10px;letter-spacing:.08em;color:#687367;margin:1px 2px 5px}
+.slot-hint{font-size:11px;line-height:1.35;padding:3px 2px;color:#8a9389}
+.activity-card{padding:7px 6px;margin:5px 0;border-radius:8px;gap:4px;box-shadow:0 1px 2px #2530250a}
+.activity-name{font-size:12px;line-height:1.35}
+.activity-meta{font-size:10px;line-height:1.3;margin-top:4px}
+.energy-word{font-size:9px}
+.activity-controls{gap:2px}
+.activity-controls button{min-width:25px;min-height:26px;padding:0 5px;border-radius:6px;font-size:12px}
+.fixed-lock{font-size:9px}
+.alert{background:#fbf7e9;border-color:#e8dcae;padding:10px 12px;border-radius:10px;margin-bottom:9px;font-size:14px}
+.alert strong{font-size:14px}
+.alert button{font-size:13px}
+.panel{padding:19px;border-color:#e5e9e1;border-radius:13px;box-shadow:0 1px 3px #263a2506}
+.panel h3{font-size:18px}
+.library-list{gap:13px}
+.library-item{border-color:#e4e8e0;border-radius:12px;padding:16px}
+.library-item h4{font-size:16px;margin-bottom:8px}
+.library-item p{line-height:1.5}
+.daily-slot{border-color:#e3e8df;border-radius:13px;padding:16px}
+.daily-slot .slot{min-height:82px}
+.setting-row{padding:17px 0}
+.footer-note{font-size:12px;line-height:1.5}
+.energy-legend .badge{font-weight:800;padding:7px 12px}.energy-legend .energy-easy{background:var(--green);color:var(--green-ink);border-color:#9bcfac}.energy-legend .energy-moderate{background:var(--yellow);color:var(--yellow-ink);border-color:#e4d18b}.energy-legend .energy-high{background:var(--red);color:var(--red-ink);border-color:#dfaaa5}
+#weeklyAddActivity{white-space:nowrap}
+.activity-card{cursor:grab;touch-action:none}
+.activity-card.is-dragging{opacity:.55}
+.slot.drop-target{background:#e7f3e8!important;border:2px solid var(--accent)!important;box-shadow:inset 0 0 0 2px #ffffff99}
+.activity-card .activity-name{font-size:13px;line-height:1.4}
+.activity-card .activity-meta{font-size:11px}
+.activity-card .energy-word{display:none!important}
+.activity-card .activity-controls{justify-content:flex-end}
+.activity-card .activity-controls button{min-width:30px;min-height:28px}
+#repeatWeekBtn{background:white}
+#overloadAlerts:empty{display:none}
+@media(min-width:1200px){.week-grid{grid-template-columns:repeat(7,minmax(145px,1fr));overflow-x:auto}.day-col{min-width:0}}
+@media(max-width:1199px){.week-grid{grid-template-columns:repeat(7,minmax(160px,1fr))}}
+@media(max-width:900px){.app{padding:14px}.layout{grid-template-columns:1fr;gap:12px}.sidebar{display:flex;gap:4px;padding:5px;background:#fff;border:1px solid var(--line);border-radius:12px;overflow-x:auto}.navbtn{padding:9px 12px;font-size:14px}.main-panel{padding:18px}.side-note{display:none}}
+@media(max-width:560px){.app{padding:9px}.topbar{gap:12px}.brand h1{font-size:24px}.top-actions{width:100%;justify-content:space-between}.main-panel{padding:13px}.viewhead{align-items:flex-start}.viewhead h2{font-size:23px}.week-toolbar{align-items:flex-start}.day-col{min-width:158px}}
+
+
+/* Readable activity cards: text wraps naturally and controls get their own row. */
+.activity-card{display:flex;flex-wrap:wrap;align-items:stretch;gap:5px 7px;padding:9px;min-width:0;min-height:0;white-space:normal;}
+.activity-text{display:block;flex:1 1 100%;width:100%;min-width:0;overflow:visible;overflow-wrap:anywhere;word-break:normal;}
+.activity-name{font-size:13px;line-height:1.4;white-space:normal;overflow:visible;text-overflow:clip;display:block;}
+.activity-meta{font-size:11px;line-height:1.4;white-space:normal;overflow-wrap:anywhere;}
+.energy-word{font-size:10px;white-space:normal;}
+.activity-controls{display:flex;flex-wrap:wrap;gap:4px;flex:1 1 100%;justify-content:flex-end;margin-top:2px;}
+.activity-controls button{min-width:30px;min-height:30px;font-size:14px;}
+.day-date{display:flex;flex-direction:column;align-items:center;justify-content:center;min-width:36px;padding:4px 6px;line-height:1.05;}
+.day-date b{font-size:16px;color:var(--ink);}
+.day-date small{font-size:10px;margin-top:3px;}
+.day-load{font-size:10px;color:var(--muted);margin:-2px 3px 6px;}
+.calendar-toolbar{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;padding:12px 0;border-bottom:1px solid var(--line);margin-bottom:12px;}
+.calendar-nav{display:flex;gap:7px;flex-wrap:wrap;}
+#weekRangeLabel{font-size:15px;color:var(--ink);}
+#voiceCommandBtn{background:#f5f7f2;}
+@media(min-width:1200px){.week-grid{grid-template-columns:repeat(7,minmax(145px,1fr));overflow-x:auto}.day-col{min-width:0}}
+@media(max-width:700px){.calendar-toolbar{align-items:flex-start;flex-direction:column}.activity-name{font-size:14px}.activity-meta{font-size:12px}.day-date{min-width:38px}}
+@media print{.calendar-toolbar,#voiceCommandBtn{display:none!important}}
+</style>
+</head>
+<body>
+<div class="app">
+<header class="topbar">
+  <div class="brand"><div class="brand-mark" aria-hidden="true">✓</div><div><h1>My Week, My Way</h1><p>A calm, accessible planner · saved on this device</p></div></div>
+  <div class="top-actions"><span id="offlineBadge" class="badge good">● Saved locally</span><button id="voiceCommandBtn" type="button">🎙 Voice command</button><button id="printBtn">Print schedule</button></div>
+</header>
+<div class="layout">
+<nav class="sidebar" aria-label="Main navigation">
+  <button class="navbtn active" data-view="weekly"><span class="navicon">▦</span> Weekly view</button>
+  <button class="navbtn" data-view="daily"><span class="navicon">☀</span> Daily view</button>
+  <button class="navbtn" data-view="activities"><span class="navicon">＋</span> Activities</button>
+  <button class="navbtn" data-view="device"><span class="navicon">⌁</span> Reminder device</button>
+  <button class="navbtn" data-view="settings"><span class="navicon">⚙</span> Accessibility & settings</button>
+  <div class="side-note">Tip: drag activities to reschedule them.</div>
+</nav>
+<main class="main-panel">
+<section id="weeklyView" class="view">
+  <div class="viewhead"><div><h2>Weekly schedule</h2><p>Plan your week, one manageable activity at a time.</p></div><div class="row"><button class="primary" id="weeklyAddActivity">＋ Add activity</button><button id="repeatWeekBtn">Use last week</button></div></div>
+  <div class="calendar-toolbar" aria-label="Calendar week navigation"><div class="calendar-nav"><button id="prevWeekBtn" aria-label="Previous week">← Previous</button><button id="todayWeekBtn">This week</button><button id="nextWeekBtn" aria-label="Next week">Next →</button></div><strong id="weekRangeLabel" aria-live="polite">This week</strong></div>
+  <div id="overloadAlerts"></div>
+  <div class="week-toolbar"><div class="row energy-legend" aria-label="Energy levels"><span class="badge energy-easy">□ Easy</span><span class="badge energy-moderate">○ Moderate</span><span class="badge energy-high">◇ High</span></div><div class="row"><label for="dailySelect">Open day:</label><select id="dailySelect" aria-label="Choose day to view"><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option></select></div></div>
+  <div id="weekGrid" class="week-grid" aria-label="Weekly schedule board"></div>
+  <div class="footer-note">Drag an activity to another time block to reschedule it. Fixed routines cannot be moved or removed.</div>
+</section>
+<section id="dailyView" class="view hidden">
+  <div class="viewhead"><div><h2 id="dailyTitle">Monday</h2><p id="dailyDateLabel">Date for this day</p><p>One day at a time, with clear and roomy time blocks.</p></div><div class="row"><select id="dailySelect2" aria-label="Choose day"><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option></select><button id="dailyPrint">Print this day</button></div></div>
+  <div id="dailySlots" class="day-list"></div>
+</section>
+<section id="activitiesView" class="view hidden">
+  <div class="viewhead"><div><h2>Activity library</h2><p>Create reusable activities and add them to any day.</p></div><button class="primary" id="openAddActivity">＋ New activity</button></div>
+  <div class="panel"><h3>How to schedule</h3><p class="muted">Use the single <b>Add activity</b> button in Weekly view, or drag a scheduled activity into another time block.</p></div>
+  <div id="libraryList" class="library-list"></div>
+</section>
+<section id="deviceView" class="view hidden">
+  <div class="viewhead"><div><h2>Reminder device</h2><p>Manage the schedule sent to your portable reminder device.</p></div><span id="deviceBadge" class="badge">Not connected</span></div>
+  <div class="two-col">
+    <div class="panel"><h3>ESP32 connection</h3><p class="muted">Bluetooth works only when this page is opened in a supported browser and the device firmware uses the matching BLE service and characteristic UUIDs.</p><div class="device-status"><span id="deviceDot" class="status-dot"></span><strong id="deviceStatus" role="status">Not connected</strong></div><div class="row" style="margin-top:14px"><button id="connectBtn" class="primary">Connect to device</button><button id="disconnectBtn">Disconnect</button></div><button id="syncBtn" class="primary" style="width:100%;margin-top:18px">Sync latest schedule</button><p id="syncStatus" class="notice" role="status">The schedule is saved locally. Connect the device to send it over Bluetooth.</p></div>
+    <div class="panel"><h3>Reminder settings</h3><div class="field"><label for="reminderLead">Remind me before an activity</label><select id="reminderLead"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="120">2 hours</option></select></div><div class="setting-row"><div><strong>Vibration reminder</strong><p>Test vibration on this device, if supported.</p></div><button id="vibrateBtn">Test vibration</button></div><div class="setting-row"><div><strong>SMS reminders</strong><p>Interface setting only; an SMS service is needed to send messages.</p></div><button id="smsToggle" class="switch" role="switch" aria-checked="false" aria-label="Enable SMS reminders"></button></div></div>
+  </div>
+  <div class="panel"><h3>Voice notes from device</h3><p class="muted">Audio files can be queued here; this does not transcribe recordings. Live microphone commands use your browser’s speech-recognition support.</p><div class="row"><input id="audioFile" type="file" accept="audio/*" aria-label="Choose voice recording"><button id="processAudio">Queue recording</button></div><div id="audioQueue" class="notice">No recordings queued.</div></div>
+  <div class="footer-note">Bluetooth sync is a real browser connection attempt, not a simulation. The ESP32 firmware must implement the UUIDs and message format below in the code comments.</div>
+</section>
+<section id="settingsView" class="view hidden">
+  <div class="viewhead"><div><h2>Accessibility & settings</h2><p>Adjust the interface to make it easier to use.</p></div></div>
+  <div class="panel"><div class="field theme-field"><label for="themeSelect">Interface colour</label><select id="themeSelect"><option value="sage">Soft sage (default)</option><option value="lavender">Soft lavender</option><option value="ocean">Soft blue</option><option value="peach">Soft peach</option></select><p class="muted">Changes the page accent and background. Energy colours stay consistent so they remain meaningful.</p></div><div class="setting-row"><div><strong>High contrast</strong><p>Increase contrast between the background, text and borders.</p></div><button id="contrastToggle" class="switch" role="switch" aria-checked="false" aria-label="High contrast"></button></div><div class="setting-row"><div><strong>Larger text</strong><p>Increase text size throughout the interface.</p></div><button id="textToggle" class="switch" role="switch" aria-checked="false" aria-label="Larger text"></button></div><div class="setting-row"><div><strong>Show schedule load alerts</strong><p>Offer a neutral suggestion when a day has many demanding activities.</p></div><button id="alertsToggle" class="switch" role="switch" aria-checked="true" aria-label="Show schedule load alerts"></button></div><div class="setting-row"><div><strong>Reset demo data</strong><p>Restore the example activities and schedule on this device.</p></div><button id="resetBtn" class="danger">Reset planner</button></div></div>
+  <div class="panel"><h3>Energy tag key</h3><p><span class="dot green"></span> <b>Easy</b> — lower energy · square</p><p><span class="dot yellow"></span> <b>Moderate</b> — some energy · circle</p><p><span class="dot red"></span> <b>High</b> — more energy · diamond</p><p class="muted">These tags are planning aids, not a judgement about the person or activity.</p></div>
+</section>
+</main>
+</div>
+</div>
+<div id="modalRoot"></div><div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+<script>
+(() => {
+const DAYS=['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+const PERIODS=['Morning','Afternoon','Evening'];
+const KEY='my-week-my-way-v2';
+const SERVICE_UUID='12345678-1234-1234-1234-1234567890ab';
+const RX_UUID='12345678-1234-1234-1234-1234567890ac';
+const TX_UUID='12345678-1234-1234-1234-1234567890ad';
+const seedLibrary=[
+{id:'walk',name:'Walk',energy:'green',duration:30,fixed:false,reminder:true},
+{id:'laundry',name:'Laundry',energy:'yellow',duration:45,fixed:false,reminder:true},
+{id:'meal',name:'Prepare a meal',energy:'yellow',duration:40,fixed:false,reminder:true},
+{id:'read',name:'Read / relax',energy:'green',duration:30,fixed:false,reminder:false},
+{id:'physio',name:'Physiotherapy',energy:'yellow',duration:30,fixed:true,reminder:true},
+{id:'church',name:'Church',energy:'green',duration:90,fixed:true,reminder:true},
+{id:'shopping',name:'Groceries',energy:'red',duration:60,fixed:false,reminder:true},
+{id:'call',name:'Call family',energy:'green',duration:15,fixed:false,reminder:true}
+];
+function fresh(){let schedule={};DAYS.forEach(d=>schedule[d]={Morning:[],Afternoon:[],Evening:[]});
+schedule.Monday.Morning.push({id:'s1',activityId:'physio',name:'Physiotherapy',energy:'yellow',duration:30,fixed:true,reminder:true});
+schedule.Monday.Afternoon.push({id:'s2',activityId:'walk',name:'Walk',energy:'green',duration:30,fixed:false,reminder:true});
+schedule.Tuesday.Morning.push({id:'s3',activityId:'laundry',name:'Laundry',energy:'yellow',duration:45,fixed:false,reminder:true});
+schedule.Wednesday.Afternoon.push({id:'s4',activityId:'shopping',name:'Groceries',energy:'red',duration:60,fixed:false,reminder:true});
+schedule.Thursday.Morning.push({id:'s5',activityId:'physio',name:'Physiotherapy',energy:'yellow',duration:30,fixed:true,reminder:true});
+schedule.Friday.Evening.push({id:'s6',activityId:'read',name:'Read / relax',energy:'green',duration:30,fixed:false,reminder:false});
+schedule.Sunday.Morning.push({id:'s7',activityId:'church',name:'Church',energy:'green',duration:90,fixed:true,reminder:true});
+return {library:seedLibrary.map(x=>({...x})),schedule,previous:null,settings:{contrast:false,large:false,alerts:true,sms:false,lead:60,theme:'sage'}}}
+let state;try{state=JSON.parse(localStorage.getItem(KEY))||fresh()}catch(e){state=fresh()}
+if(!state.library||!state.schedule)state=fresh();state.settings={contrast:false,large:false,alerts:true,sms:false,lead:60,theme:'sage',...(state.settings||{})};
+let selectedEnergy='green',selectedActivity=null,dragInfo=null,device=null,rxCharacteristic=null,txCharacteristic=null,toastTimer;
+let weekOffset=0; const weekSchedules={0:JSON.parse(JSON.stringify(state.schedule))};
+const $=id=>document.getElementById(id);
+const esc=s=>String(s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const energyLabel=e=>({green:'Easy',yellow:'Moderate',red:'High'}[e]||'Easy');
+const shape=e=>({green:'□',yellow:'●',red:'◇'}[e]||'□');
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));$('offlineBadge').textContent='● Saved locally'}catch(e){$('offlineBadge').textContent='Save unavailable'} }
+function toast(msg){$('toast').textContent=msg;$('toast').classList.remove('hidden');clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').classList.add('hidden'),2600)}
+function uid(){return 'a'+Date.now().toString(36)+Math.random().toString(36).slice(2,6)}
+function slotId(day,period){return `slot-${day}-${period}`}
+function weekStart(offset=weekOffset){const now=new Date();const d=new Date(now.getFullYear(),now.getMonth(),now.getDate());const weekday=(d.getDay()+6)%7;d.setDate(d.getDate()-weekday+offset*7);return d}
+function formatShortDate(d){return d.toLocaleDateString(undefined,{month:'short',day:'numeric'})}
+function dateForDay(day){const start=weekStart();start.setDate(start.getDate()+DAYS.indexOf(day));return start}
+function formatLongDate(d){return d.toLocaleDateString(undefined,{weekday:'long',month:'long',day:'numeric',year:'numeric'})}
+function changeWeek(next){weekSchedules[weekOffset]=JSON.parse(JSON.stringify(state.schedule));weekOffset=next;if(!weekSchedules[weekOffset]){const copy=JSON.parse(JSON.stringify(state.schedule));DAYS.forEach(day=>PERIODS.forEach(period=>copy[day][period].forEach(a=>a.id=uid())));weekSchedules[weekOffset]=copy;}state.schedule=JSON.parse(JSON.stringify(weekSchedules[weekOffset]));selectedActivity=null;renderAll();toast(weekOffset===0?'Showing this week.':weekOffset<0?`${Math.abs(weekOffset)} week${weekOffset<-1?'s':''} ago`:`${weekOffset} week${weekOffset>1?'s':''} ahead`)}
+function energyPoints(day){return Object.values(state.schedule[day]).flat().reduce((n,a)=>n+({green:1,yellow:2,red:3}[a.energy]||1),0)}
+function renderCard(a,day,period,index,library=false){
+ return `<div class="activity-card ${a.energy}" tabindex="0" role="group" aria-label="${esc(a.name)}${a.fixed?', fixed routine':''}; ${a.duration||30} minutes" draggable="${!a.fixed && !library}" data-card-type="${library?'library':'scheduled'}" data-id="${esc(a.id)}" ${library?'':'data-day="'+day+'" data-period="'+period+'" data-index="'+index+'"'}><div class="activity-text"><div class="activity-name">${shape(a.energy)} ${esc(a.name)}</div><div class="activity-meta">${a.duration||30} min ${a.fixed?'<span class="fixed-lock"> · 🔒 FIXED</span>':''}</div></div>${library?'':`<div class="activity-controls"><button class="small" data-action="remove" title="Remove activity" aria-label="Remove ${esc(a.name)}" ${a.fixed?'disabled':''}>×</button></div>`}</div>`;
+}
+function renderWeek(){
+ const grid=$('weekGrid');grid.innerHTML='';
+ const monday=weekStart();const sunday=new Date(monday);sunday.setDate(sunday.getDate()+6);$('weekRangeLabel').textContent=`${formatShortDate(monday)} – ${formatShortDate(sunday)}${weekOffset===0?' · This week':''}`;
+ DAYS.forEach((day,dayIndex)=>{
+  const date=new Date(monday);date.setDate(monday.getDate()+dayIndex);
+  const col=document.createElement('div');col.className='day-col';
+  col.innerHTML=`<div class="day-title"><span>${day}</span><span class="day-date"><b>${date.getDate()}</b><small>${date.toLocaleDateString(undefined,{month:'short'})}</small></span></div><div class="day-load">${energyPoints(day)} energy points</div>`;
+  PERIODS.forEach(period=>{
+   const items=state.schedule[day][period]||[];
+   const slot=document.createElement('div');slot.className='slot';slot.id=slotId(day,period);slot.dataset.day=day;slot.dataset.period=period;slot.setAttribute('aria-label',`${day} ${period} drop zone`);
+   slot.innerHTML=`<div class="slot-label">${period}</div>${items.length?items.map((a,i)=>renderCard(a,day,period,i)).join(''):'<div class="slot-hint">No activities yet</div>'}`;
+   col.appendChild(slot);
+  });grid.appendChild(col);
+ });
+ renderAlerts();
+}
+function renderAlerts(){
+ const root=$('overloadAlerts');root.innerHTML='';if(!state.settings.alerts)return;
+ DAYS.forEach(day=>{const score=energyPoints(day);if(score>=6&&!sessionStorage.getItem('dismiss-'+day)){
+ const box=document.createElement('div');box.className='alert';box.innerHTML=`<span aria-hidden="true">ⓘ</span><p><strong>${day} has a full schedule.</strong> You could move one activity to a quieter day if that would help.</p><button data-alert-move="${day}">Suggest a move</button><button data-alert-dismiss="${day}" aria-label="Dismiss ${day} schedule message">Dismiss</button>`;root.appendChild(box)}});
+}
+function renderDaily(){
+ const day=$('dailySelect2').value;const dayDate=dateForDay(day);$('dailyTitle').textContent=day;$('dailyDateLabel').textContent=formatLongDate(dayDate);const root=$('dailySlots');root.innerHTML='';
+ PERIODS.forEach(period=>{const box=document.createElement('div');box.className='daily-slot';const items=state.schedule[day][period]||[];box.innerHTML=`<h3>${period}</h3><div class="slot" data-day="${day}" data-period="${period}" aria-label="${day} ${period} drop zone">${items.length?items.map((a,i)=>renderCard(a,day,period,i)).join(''):'<div class="slot-hint">No activities scheduled.</div>'}</div>`;root.appendChild(box)});
+}
+function renderLibrary(){
+ $('libraryList').innerHTML=state.library.map(a=>`<article class="library-item"><h4>${shape(a.energy)} ${esc(a.name)} ${a.fixed?'<span class="fixed-lock">🔒 FIXED</span>':''}</h4><p>${energyLabel(a.energy)} energy · ${a.duration} min · ${a.reminder?'Reminder on':'No reminder'}</p><div class="row"><button class="primary small" data-add-to-schedule="${esc(a.id)}">Add to schedule</button><button class="small" data-edit-library="${esc(a.id)}">Edit</button>${a.fixed?'':`<button class="small danger" data-delete-library="${esc(a.id)}">Delete</button>`}</div></article>`).join('')||'<p>No activities yet. Create one to get started.</p>';
+}
+function renderAll(){renderWeek();renderDaily();renderLibrary();$('themeSelect').value=state.settings.theme||'sage';document.body.dataset.theme=state.settings.theme||'sage';$('contrastToggle').setAttribute('aria-checked',state.settings.contrast);$('textToggle').setAttribute('aria-checked',state.settings.large);$('alertsToggle').setAttribute('aria-checked',state.settings.alerts);$('smsToggle').setAttribute('aria-checked',state.settings.sms);$('reminderLead').value=state.settings.lead;document.body.classList.toggle('high-contrast',state.settings.contrast);document.body.classList.toggle('large-text',state.settings.large);save()}
+function switchView(name){document.querySelectorAll('.view').forEach(v=>v.classList.add('hidden'));$(name+'View').classList.remove('hidden');document.querySelectorAll('.navbtn').forEach(b=>b.classList.toggle('active',b.dataset.view===name));if(name==='daily')renderDaily();if(name==='weekly')renderWeek()}
+document.querySelectorAll('.navbtn').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.view)));
+$('prevWeekBtn').onclick=()=>changeWeek(weekOffset-1);$('nextWeekBtn').onclick=()=>changeWeek(weekOffset+1);$('todayWeekBtn').onclick=()=>changeWeek(0);
+$('voiceCommandBtn').onclick=openVoiceCommand;
+
+$('dailySelect').addEventListener('change',e=>{$('dailySelect2').value=e.target.value;switchView('daily');renderDaily()});
+$('dailySelect2').addEventListener('change',renderDaily);
+$('printBtn').addEventListener('click',()=>window.print());$('dailyPrint').addEventListener('click',()=>window.print());
+function showModal(title,body,onSubmit){
+ const root=$('modalRoot');root.innerHTML=`<div class="modal-backdrop" role="presentation"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">${title}</h2><form id="modalForm">${body}<div class="modal-actions"><button type="button" id="cancelModal">Cancel</button><button class="primary" type="submit">Save</button></div></form></div></div>`;
+ $('cancelModal').onclick=()=>root.innerHTML='';root.querySelector('.modal-backdrop').addEventListener('click',e=>{if(e.target.classList.contains('modal-backdrop'))root.innerHTML=''});
+ $('modalForm').onsubmit=e=>{e.preventDefault();if(onSubmit(new FormData(e.target))!==false)root.innerHTML=''};
+ root.querySelector('input,select')?.focus();
+}
+function activityForm(existing=null){
+ const a=existing||{name:'',energy:'green',duration:30,fixed:false,reminder:true};
+ showModal(existing?'Edit activity':'Create activity',`
+ <div class="field"><label for="actName">Activity name</label><input id="actName" name="name" required maxlength="60" value="${esc(a.name)}" placeholder="e.g. Water plants"></div>
+ <div class="row" style="margin-top:12px"><div class="field"><label for="actEnergy">Energy level</label><select id="actEnergy" name="energy"><option value="green" ${a.energy==='green'?'selected':''}>□ Easy</option><option value="yellow" ${a.energy==='yellow'?'selected':''}>● Moderate</option><option value="red" ${a.energy==='red'?'selected':''}>◇ High</option></select></div><div class="field"><label for="actDuration">Duration (minutes)</label><input id="actDuration" name="duration" type="number" min="5" max="600" step="5" value="${a.duration}"></div></div>
+ <div class="setting-row"><label for="actReminder"><strong>Reminder enabled</strong></label><input id="actReminder" name="reminder" type="checkbox" ${a.reminder?'checked':''} style="width:22px;height:22px"></div>
+ ${a.fixed?'<p class="notice">This is a fixed routine and cannot be changed to movable.</p>':'<div class="setting-row"><label for="actFixed"><strong>Make this a fixed routine</strong><p class="muted">Fixed activities cannot be moved or removed once scheduled.</p></label><input id="actFixed" name="fixed" type="checkbox" style="width:22px;height:22px"></div>'}`,fd=>{
+  const name=String(fd.get('name')||'').trim();if(!name){toast('Please enter an activity name.');return false}
+  const next={...(existing||{}),id:existing?.id||uid(),name,energy:fd.get('energy'),duration:Math.max(5,Number(fd.get('duration')||30)),fixed:existing?.fixed||fd.has('fixed'),reminder:fd.has('reminder')};
+  if(existing){state.library=state.library.map(x=>x.id===existing.id?next:x);DAYS.forEach(d=>PERIODS.forEach(p=>state.schedule[d][p].forEach(s=>{if(s.activityId===existing.id){s.name=next.name;s.energy=next.energy;s.duration=next.duration;s.reminder=next.reminder}})))}
+  else state.library.push(next);
+  renderAll();toast(existing?'Activity updated.':'Activity added to library.');
+ });
+}
+$('openAddActivity').onclick=()=>activityForm();
+$('weeklyAddActivity').onclick=()=>createAndScheduleActivity($('dailySelect').value||'Monday','Morning');
+function createAndScheduleActivity(day='Monday',period='Morning'){
+ const chosenDay=day;
+ showModal('Add a new activity to your week',`<p class="muted">Create it here and it will be added to your activity library for reuse.</p><div class="field"><label for="newActName">Activity name</label><input id="newActName" name="name" required maxlength="60" placeholder="e.g. Water the plants"></div><div class="row" style="margin-top:12px"><div class="field"><label for="newActDay">Day</label><select id="newActDay" name="day">${DAYS.map(d=>`<option ${d===chosenDay?'selected':''}>${d}</option>`).join('')}</select></div><div class="field"><label for="newActPeriod">Time of day</label><select id="newActPeriod" name="period">${PERIODS.map(p=>`<option ${p===period?'selected':''}>${p}</option>`).join('')}</select></div></div><div class="row" style="margin-top:12px"><div class="field"><label for="newActEnergy">Energy level</label><select id="newActEnergy" name="energy"><option value="green">□ Easy</option><option value="yellow">○ Moderate</option><option value="red">◇ High</option></select></div><div class="field"><label for="newActDuration">Duration (minutes)</label><input id="newActDuration" name="duration" type="number" min="5" max="600" step="5" value="30"></div></div><div class="setting-row"><label for="newActReminder"><strong>Reminder enabled</strong></label><input id="newActReminder" name="reminder" type="checkbox" checked style="width:22px;height:22px"></div>`,fd=>{
+  const name=String(fd.get('name')||'').trim();if(!name){toast('Please enter an activity name.');return false}
+  const activity={id:uid(),name,energy:fd.get('energy'),duration:Math.max(5,Number(fd.get('duration')||30)),fixed:false,reminder:fd.has('reminder')};
+  state.library.push(activity);state.schedule[fd.get('day')][fd.get('period')].push({...activity,id:uid(),activityId:activity.id});renderAll();toast(`${name} added to ${fd.get('day')} ${fd.get('period').toLowerCase()}.`);
+ });
+}
+function scheduleFromLibrary(activityId,day,period){const a=state.library.find(x=>x.id===activityId);if(!a)return;state.schedule[day][period].push({...a,id:uid(),activityId:a.id});selectedActivity=null;renderAll();toast(`${a.name} added to ${day} ${period.toLowerCase()}.`)}
+function moveScheduled(id,fromDay,fromPeriod,toDay,toPeriod){
+ let a=state.schedule[fromDay][fromPeriod].find(x=>x.id===id);if(!a||a.fixed){toast('Fixed routines cannot be moved.');return}
+ state.schedule[fromDay][fromPeriod]=state.schedule[fromDay][fromPeriod].filter(x=>x.id!==id);state.schedule[toDay][toPeriod].push(a);selectedActivity=null;renderAll();toast(`Moved ${a.name} to ${toDay} ${toPeriod.toLowerCase()}.`);
+}
+function placeSelection(day,period){
+ if(!selectedActivity){openQuickAdd(day,period);return}
+ if(selectedActivity.type==='library')scheduleFromLibrary(selectedActivity.activityId,day,period);
+ else moveScheduled(selectedActivity.id,selectedActivity.day,selectedActivity.period,day,period);
+}
+function openQuickAdd(day,period){
+ showModal(`Add to ${day} · ${period}`,`<div class="field"><label for="quickActivity">Choose an activity</label><select name="activityId" id="quickActivity" required>${state.library.map(a=>`<option value="${a.id}">${esc(a.name)} — ${energyLabel(a.energy)}${a.fixed?' (fixed)':''}</option>`).join('')}</select></div>`,fd=>{scheduleFromLibrary(fd.get('activityId'),day,period)});
+}
+// Browser speech recognition for short, local planner commands.
+let voiceRecognition=null,voiceListening=false;
+function openVoiceCommand(){
+ const root=$('modalRoot');
+ root.innerHTML=`<div class="modal-backdrop" role="presentation"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="voiceModalTitle"><h2 id="voiceModalTitle">Voice command</h2><p>Try “Move walk from Monday to Tuesday” or “I have a meeting on Monday morning.” Review the words below, then choose Apply command.</p><div class="notice" id="voiceStatus" role="status" aria-live="polite">Ready. Press Start listening, or type a command below.</div><div class="field"><label for="voiceTranscript">What I heard / your command</label><textarea id="voiceTranscript" rows="3" placeholder="e.g. Move walk from Monday to Tuesday"></textarea></div><p class="muted" style="font-size:13px">Speech recognition depends on browser support and may require an internet connection. If the microphone is unavailable, you can type the same command.</p><div class="modal-actions" style="justify-content:space-between;flex-wrap:wrap"><div class="row"><button type="button" id="startVoiceBtn" class="primary">🎙 Start listening</button><button type="button" id="stopVoiceBtn" disabled>Stop</button></div><div class="row"><button type="button" id="cancelVoiceBtn">Cancel</button><button type="button" id="applyVoiceBtn" class="primary">Apply command</button></div></div></div></div>`;
+ const status=$('voiceStatus'),transcript=$('voiceTranscript'),start=$('startVoiceBtn'),stop=$('stopVoiceBtn');
+ const SpeechRecognition=window.SpeechRecognition||window.webkitSpeechRecognition;
+ function stopRecognition(){if(voiceRecognition){try{voiceRecognition.stop()}catch(e){}}voiceListening=false;start.disabled=false;stop.disabled=true;}
+ $('cancelVoiceBtn').onclick=()=>{stopRecognition();root.innerHTML=''};
+ $('applyVoiceBtn').onclick=()=>{stopRecognition();const command=transcript.value.trim();if(!command){status.textContent='Please speak or type a command first.';return}const result=runVoiceCommand(command);if(result.ok){root.innerHTML='';toast(result.message);speakConfirmation(result.message)}else{status.textContent=result.message;}};
+ start.onclick=()=>{
+  if(!SpeechRecognition){status.textContent='Voice recognition is not supported in this browser. Type your command in the box instead.';return}
+  if(voiceRecognition){try{voiceRecognition.abort()}catch(e){}}
+  voiceRecognition=new SpeechRecognition();voiceRecognition.lang='en-CA';voiceRecognition.continuous=false;voiceRecognition.interimResults=true;voiceRecognition.maxAlternatives=1;voiceListening=true;start.disabled=true;stop.disabled=false;status.textContent='Listening… speak a short command.';transcript.value='';
+  voiceRecognition.onresult=event=>{let text='';for(let i=0;i<event.results.length;i++)text+=event.results[i][0].transcript+(event.results[i].isFinal?'':' ');transcript.value=text.trim();if(event.results[event.results.length-1]?.isFinal)status.textContent='I heard: “'+transcript.value+'”. Review it, then choose Apply command.'};
+  voiceRecognition.onerror=event=>{status.textContent=event.error==='not-allowed'?'Microphone permission was denied. Allow microphone access or type your command.':event.error==='no-speech'?'I did not hear speech. Try again or type your command.':'Speech recognition could not start ('+event.error+'). You can type your command instead.';voiceListening=false;start.disabled=false;stop.disabled=true};
+  voiceRecognition.onend=()=>{voiceListening=false;start.disabled=false;stop.disabled=true;if(transcript.value.trim()&&status.textContent==='Listening… speak a short command.')status.textContent='I heard: “'+transcript.value+'”. Review it, then choose Apply command.'};
+  try{voiceRecognition.start()}catch(e){voiceListening=false;start.disabled=false;stop.disabled=true;status.textContent='Could not start the microphone. Try again or type your command.'}
+ };
+ stop.onclick=()=>{stopRecognition();status.textContent=transcript.value.trim()?'Listening stopped. Review the command, then choose Apply command.':'Listening stopped. You can try again or type a command.'};
+ transcript.focus();
+}
+function normalizeVoiceText(value){return String(value||'').toLowerCase().replace(/[’']/g,'').replace(/[^a-z0-9\s/-]/g,' ').replace(/\s+/g,' ').trim()}
+function findVoiceDay(text){return DAYS.find(day=>new RegExp('\\b'+day.toLowerCase()+'\\b').test(text))||null}
+function findVoicePeriod(text){return PERIODS.find(period=>new RegExp('\\b'+period.toLowerCase()+'\\b').test(text))||null}
+function speakConfirmation(message){if(!('speechSynthesis' in window)||!window.SpeechSynthesisUtterance)return;try{window.speechSynthesis.cancel();const utterance=new SpeechSynthesisUtterance(message);utterance.lang='en-CA';window.speechSynthesis.speak(utterance)}catch(e){}}
+function runVoiceCommand(raw){
+ const text=normalizeVoiceText(raw);if(!text)return {ok:false,message:'Please enter a command.'};
+ const dayPattern='(monday|tuesday|wednesday|thursday|friday|saturday|sunday)';
+ const moveMatch=text.match(new RegExp('\\bmove\\s+(.+?)\\s+from\\s+'+dayPattern+'(?:\\s+(morning|afternoon|evening))?\\s+to\\s+'+dayPattern+'(?:\\s+(morning|afternoon|evening))?\\b'));
+ if(moveMatch){
+  let activityName=moveMatch[1].replace(/^(the|my)\s+/,'').trim();const fromDay=moveMatch[2][0].toUpperCase()+moveMatch[2].slice(1),fromPeriod=moveMatch[3]?moveMatch[3][0].toUpperCase()+moveMatch[3].slice(1):null,toDay=moveMatch[4][0].toUpperCase()+moveMatch[4].slice(1),toPeriod=moveMatch[5]?moveMatch[5][0].toUpperCase()+moveMatch[5].slice(1):null;
+  const candidates=[];PERIODS.filter(p=>!fromPeriod||p===fromPeriod).forEach(period=>(state.schedule[fromDay][period]||[]).forEach(a=>{const name=normalizeVoiceText(a.name);if(name===activityName||name.includes(activityName)||activityName.includes(name))candidates.push({a,period})}));
+  if(!candidates.length)return {ok:false,message:`I could not find “${activityName}” on ${fromDay}${fromPeriod?' '+fromPeriod.toLowerCase():''}. Check the activity name and try again.`};
+  if(candidates.length>1)return {ok:false,message:`I found more than one matching activity on ${fromDay}. Please include its time, for example “Move walk from Monday afternoon to Tuesday afternoon.”`};
+  const found=candidates[0];if(found.a.fixed)return {ok:false,message:`${found.a.name} is a fixed routine, so it cannot be moved.`};
+  const destinationPeriod=toPeriod||found.period;moveScheduled(found.a.id,fromDay,found.period,toDay,destinationPeriod);return {ok:true,message:`Moved ${found.a.name} to ${toDay} ${destinationPeriod.toLowerCase()}.`};
+ }
+ const day=findVoiceDay(text),period=findVoicePeriod(text);
+ const createMatch=text.match(/\b(?:i have|ive got|add|create|schedule|put|book)\s+(?:a|an|the)\s+(.+?)\s+(?:on|for)?\s*(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b/);
+ let activityName='';
+ if(createMatch)activityName=createMatch[1];
+ else if(day&&period){activityName=text.replace(/\b(?:i have|ive got|there is|please|add|create|schedule|put|book)\b/g,' ').replace(/\b(?:a|an|the|on|for|at|in)\b/g,' ').replace(/\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday|morning|afternoon|evening)\b/g,' ').replace(/\s+/g,' ').trim()}
+ if(activityName&&day&&period){activityName=activityName.replace(/^(a|an|the)\s+/ ,'').replace(/\s+(in|on|for|at)\s*$/,'').trim();if(!activityName)return {ok:false,message:'Please say the activity name, day, and time of day.'};activityName=activityName.charAt(0).toUpperCase()+activityName.slice(1);
+  const slotItems=state.schedule[day][period]||[],conflictNote=slotItems.length?` Note: ${day} ${period.toLowerCase()} already includes ${slotItems.map(a=>a.name).join(', ')}.`:'';const existing=state.library.find(a=>normalizeVoiceText(a.name)===normalizeVoiceText(activityName));if(existing){scheduleFromLibrary(existing.id,day,period);return {ok:true,message:`Added ${existing.name} to ${day} ${period.toLowerCase()}.${conflictNote}`}}
+  const activity={id:uid(),name:activityName,energy:'green',duration:30,fixed:false,reminder:true};state.library.push(activity);state.schedule[day][period].push({...activity,id:uid(),activityId:activity.id});renderAll();return {ok:true,message:`Added ${activityName} to ${day} ${period.toLowerCase()}. It is set to easy energy and 30 minutes; you can edit those details later.${conflictNote}`};
+ }
+ if(day&&!period)return {ok:false,message:`I heard ${day}, but not a time of day. Please include morning, afternoon, or evening.`};
+ return {ok:false,message:'I could not understand that command. Try “Move walk from Monday to Tuesday” or “I have a meeting on Monday morning.”'};
+}
+
+// Native HTML drag-and-drop for mouse/trackpad.
+let nativeDrag=null;
+document.addEventListener('dragstart',e=>{
+ const card=e.target.closest('.activity-card');if(!card||card.dataset.cardType==='library'||card.getAttribute('draggable')!=='true'){e.preventDefault();return}
+ nativeDrag={id:card.dataset.id,day:card.dataset.day,period:card.dataset.period};pointerStart=null;
+ e.dataTransfer.effectAllowed='move';e.dataTransfer.setData('text/plain',card.dataset.id);card.classList.add('is-dragging');
+});
+document.addEventListener('dragover',e=>{const slot=e.target.closest('.slot');if(!slot||!nativeDrag)return;e.preventDefault();e.dataTransfer.dropEffect='move';document.querySelectorAll('.slot.drop-target').forEach(x=>x.classList.remove('drop-target'));slot.classList.add('drop-target')});
+document.addEventListener('drop',e=>{const slot=e.target.closest('.slot');if(!slot||!nativeDrag)return;e.preventDefault();const source=nativeDrag;nativeDrag=null;document.querySelectorAll('.slot.drop-target').forEach(x=>x.classList.remove('drop-target'));if(source.day!==slot.dataset.day||source.period!==slot.dataset.period)moveScheduled(source.id,source.day,source.period,slot.dataset.day,slot.dataset.period)});
+document.addEventListener('dragend',()=>{nativeDrag=null;document.querySelectorAll('.slot.drop-target').forEach(x=>x.classList.remove('drop-target'));document.querySelectorAll('.is-dragging').forEach(x=>x.classList.remove('is-dragging'))});
+// Pointer drag supports touch screens where native HTML drag-and-drop is unreliable.
+let pointerStart=null;
+document.addEventListener('pointerdown',e=>{
+ const card=e.target.closest('.activity-card');if(!card||e.target.closest('button'))return;
+ pointerStart={x:e.clientX,y:e.clientY,card,started:false,source:{type:card.dataset.cardType,id:card.dataset.id,day:card.dataset.day,period:card.dataset.period}};
+});
+document.addEventListener('pointermove',e=>{
+ if(!pointerStart)return;
+ if(!pointerStart.started&&Math.hypot(e.clientX-pointerStart.x,e.clientY-pointerStart.y)>9){pointerStart.started=true;dragInfo=pointerStart.source;document.body.style.cursor='grabbing';pointerStart.card.classList.add('is-dragging')}
+ if(pointerStart.started){const el=document.elementFromPoint(e.clientX,e.clientY);document.querySelectorAll('.slot.drop-target').forEach(s=>s.classList.remove('drop-target'));const slot=el?.closest('.slot');if(slot)slot.classList.add('drop-target')}
+});
+document.addEventListener('pointerup',e=>{
+ if(!pointerStart)return;const p=pointerStart;pointerStart=null;document.body.style.cursor='';
+ document.querySelectorAll('.slot.drop-target').forEach(s=>s.classList.remove('drop-target'));
+ if(p.started){const slot=document.elementFromPoint(e.clientX,e.clientY)?.closest('.slot');if(slot&&p.source.type!=='library'){const d=slot.dataset.day,period=slot.dataset.period;moveScheduled(p.source.id,p.source.day,p.source.period,d,period)}p.card.classList.remove('is-dragging');dragInfo=null;return}
+});
+document.addEventListener('pointercancel',()=>{pointerStart=null;dragInfo=null;document.body.style.cursor='';document.querySelectorAll('.slot.drop-target,.is-dragging').forEach(el=>el.classList.remove('drop-target','is-dragging'))});
+document.addEventListener('click',e=>{
+ const action=e.target.closest('[data-action]');if(action){e.stopPropagation();const card=action.closest('.activity-card'),{day,period,id}=card.dataset;const a=state.schedule[day][period].find(x=>x.id===id);if(!a)return;
+ if(action.dataset.action==='remove'){if(a.fixed){toast('Fixed routines cannot be removed.');return}state.schedule[day][period]=state.schedule[day][period].filter(x=>x.id!==id);renderAll();toast('Activity removed from schedule.')}
+ return}
+ const alertMove=e.target.closest('[data-alert-move]');if(alertMove){suggestMove(alertMove.dataset.alertMove);return}
+ const dismiss=e.target.closest('[data-alert-dismiss]');if(dismiss){sessionStorage.setItem('dismiss-'+dismiss.dataset.alertDismiss,'1');renderAlerts();return}
+ const add=e.target.closest('[data-add-to-schedule]');if(add){const a=state.library.find(x=>x.id===add.dataset.addToSchedule);if(a)showModal(`Add ${esc(a.name)} to your week`,`<div class="field"><label for="libAddDay">Day</label><select name="day" id="libAddDay">${DAYS.map(d=>`<option>${d}</option>`).join('')}</select></div><div class="field" style="margin-top:12px"><label for="libAddPeriod">Time of day</label><select name="period" id="libAddPeriod">${PERIODS.map(p=>`<option>${p}</option>`).join('')}</select></div>`,fd=>scheduleFromLibrary(a.id,fd.get('day'),fd.get('period')));return}
+ const edit=e.target.closest('[data-edit-library]');if(edit){activityForm(state.library.find(a=>a.id===edit.dataset.editLibrary));return}
+ const del=e.target.closest('[data-delete-library]');if(del){const a=state.library.find(x=>x.id===del.dataset.deleteLibrary);if(a&&confirm(`Delete "${a.name}" from your activity library? Scheduled copies remain.`)){state.library=state.library.filter(x=>x.id!==a.id);renderAll();toast('Activity deleted from library.')}return}
+ const card=e.target.closest('.activity-card');if(card){return}
+
+});
+document.addEventListener('keydown',e=>{const card=e.target.closest('.activity-card');if(card&&(e.key==='Enter'||e.key===' ')){e.preventDefault();card.click()}});
+$('repeatWeekBtn').onclick=()=>{if(!confirm('Copy this week as a starting point for next week? This replaces the current board with a copy of the current schedule.'))return;state.previous=JSON.parse(JSON.stringify(state.schedule));const clone=JSON.parse(JSON.stringify(state.schedule));DAYS.forEach(d=>PERIODS.forEach(p=>clone[d][p].forEach(a=>a.id=uid())));state.schedule=clone;renderAll();toast('Schedule copied. Edit it as needed.')};
+function suggestMove(day){
+ let candidate=null;for(const p of PERIODS){const a=state.schedule[day][p].find(x=>!x.fixed&&x.energy==='red')||state.schedule[day][p].find(x=>!x.fixed&&x.energy==='yellow');if(a){candidate={a,p};break}}
+ if(!candidate){toast('No movable activity found on this day.');return}
+ const target=DAYS.filter(d=>d!==day).sort((a,b)=>energyPoints(a)-energyPoints(b))[0];
+ if(!target){return}if(confirm(`Move "${candidate.a.name}" from ${day} ${candidate.p} to ${target} ${candidate.p}?`)){moveScheduled(candidate.a.id,day,candidate.p,target,candidate.p)}
+}
+$('themeSelect').onchange=e=>{state.settings.theme=e.target.value;renderAll();toast('Colour preference saved.')};
+$('contrastToggle').onclick=()=>{state.settings.contrast=!state.settings.contrast;renderAll()};
+$('textToggle').onclick=()=>{state.settings.large=!state.settings.large;renderAll()};
+$('alertsToggle').onclick=()=>{state.settings.alerts=!state.settings.alerts;renderAll()};
+$('smsToggle').onclick=()=>{state.settings.sms=!state.settings.sms;renderAll();toast(state.settings.sms?'SMS preference enabled in this interface.':'SMS preference disabled.')};
+$('reminderLead').onchange=e=>{state.settings.lead=Number(e.target.value);save();toast('Reminder preference saved.')};
+$('vibrateBtn').onclick=()=>{if('vibrate'in navigator){navigator.vibrate(180);toast('Vibration test requested.')}else toast('Vibration is not supported by this browser/device.')};
+$('resetBtn').onclick=()=>{if(confirm('Reset the planner to the original example schedule?')){state=fresh();sessionStorage.clear();selectedActivity=null;renderAll();toast('Planner reset.')}};
+$('processAudio').onclick=()=>{const file=$('audioFile').files[0];if(!file){toast('Choose an audio recording first.');return}$('audioQueue').textContent=`Queued: ${file.name} (${Math.round(file.size/1024)} KB). Transcription needs a speech-processing service.`;toast('Recording added to the queue.')};
+$('connectBtn').onclick=async()=>{
+ if(!navigator.bluetooth){$('deviceStatus').textContent='Bluetooth unavailable in this browser';toast('Use a Web Bluetooth compatible browser on a supported device.');return}
+ try{
+ $('deviceStatus').textContent='Searching for reminder device…';
+ device=await navigator.bluetooth.requestDevice({filters:[{name:'Barbara Scheduler'}],optionalServices:[SERVICE_UUID]});
+ device.addEventListener('gattserverdisconnected',()=>{rxCharacteristic=null;txCharacteristic=null;setDeviceConnected(false,'Device disconnected')});
+ const server=await device.gatt.connect();const service=await server.getPrimaryService(SERVICE_UUID);
+ rxCharacteristic=await service.getCharacteristic(RX_UUID);txCharacteristic=await service.getCharacteristic(TX_UUID);
+ await txCharacteristic.startNotifications();txCharacteristic.addEventListener('characteristicvaluechanged',ev=>{const msg=new TextDecoder().decode(ev.target.value);$('deviceStatus').textContent='Device: '+msg});
+ setDeviceConnected(true,'Connected to '+device.name);toast('Reminder device connected.');
+ }catch(err){setDeviceConnected(false,err.name==='NotFoundError'?'No device selected':'Connection failed: '+err.message)}
+};
+function setDeviceConnected(on,msg){$('deviceStatus').textContent=msg;$('deviceDot').classList.toggle('on',on);$('deviceBadge').textContent=on?'Connected':'Not connected';$('deviceBadge').classList.toggle('good',on)}
+$('disconnectBtn').onclick=()=>{if(device?.gatt?.connected)device.gatt.disconnect();setDeviceConnected(false,'Not connected')};
+$('syncBtn').onclick = async () => {
+  const lines = ['SCHEDULE_START'];
+
+  DAYS.forEach(day => {
+    PERIODS.forEach(period => {
+      (state.schedule[day][period] || []).forEach(activity => {
+        // Must match the ESP32 parser: day|period|name|energy
+        lines.push(
+          `${day}|${period}|${activity.name}|${activity.energy}`
+        );
+      });
+    });
+  });
+
+  lines.push('SCHEDULE_END');
+ if(!rxCharacteristic){$('syncStatus').textContent=`Not sent to device. ${DAYS.reduce((n,d)=>n+PERIODS.reduce((m,p)=>m+state.schedule[d][p].length,0),0)} scheduled activities are saved locally. Connect the device first.`;toast('Connect the reminder device before syncing.');return}
+ try{const enc=new TextEncoder();for(const line of lines){await rxCharacteristic.writeValue(enc.encode(line));await new Promise(r=>setTimeout(r,120))}$('syncStatus').textContent='Schedule sent successfully at '+new Date().toLocaleTimeString()+'.';toast('Schedule synced to reminder device.')}
+ catch(err){$('syncStatus').textContent='Sync failed: '+err.message;toast('Could not sync the schedule.')}
+};
+// Save state when tab changes; online state is informational only.
+window.addEventListener('online',()=>{$('offlineBadge').textContent='● Online · saved locally'});window.addEventListener('offline',()=>{$('offlineBadge').textContent='● Offline · saved locally'});
+// Use last week's schedule as a starting point; when absent, the current schedule is still duplicated safely.
+renderAll();
+})();
+</script>
+</body>
+</html>
