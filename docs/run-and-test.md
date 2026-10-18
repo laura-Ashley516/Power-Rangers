@@ -39,6 +39,15 @@ The iPad needs a real `https://` address (microphone, Bluetooth and offline mode
 
 **Things to check on the iPad (tests T1–T3):** Bluetooth to the ESP32 · printing · opening in airplane mode · home-screen icon · "Storage on this device" message in Settings · microphone recording in Bluefy · Whisper speed · time to transfer one voice note.
 
+### Publishing the test site
+The test site is a separate **public** repository that only holds a copy of `app/` (this repo stays private). To update it after changing the app:
+
+```bash
+tools/publish-test-site.sh <public-repo-url>
+```
+
+It copies `app/`, refuses to publish if a word from your local `.private-names` file appears (that file is never committed), then pushes. Bump `APP_VERSION` in `app/js/config.js` and `CACHE` in `app/sw.js` when you publish a new version, so devices pick up the update.
+
 ## 6. The device
 
 See [firmware/README.md](../firmware/README.md) and [hardware/wiring/pins.md](../hardware/wiring/pins.md). The firmware has **not been compiled yet**.
