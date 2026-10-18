@@ -131,16 +131,31 @@ button.primary{background:#28543b}
 .file-button{display:inline-flex;align-items:center;min-height:44px;padding:9px 13px;border:1px solid #d2d9cf;border-radius:9px;background:#fff;font-weight:650;cursor:pointer}
 .file-button input{position:absolute;width:1px;height:1px;opacity:0}
 .file-button:focus-within{outline:3px solid var(--focus);outline-offset:2px}
-.print-header{display:none}
+/* ---------- Print: its own layout (#printArea), never the screen layout ---------- */
+.print-area{display:none}
 @media print{
-  @page{margin:12mm}
-  .print-header{display:block;font-size:16px;margin:0 0 10px}
-  #voiceBanner,#overloadAlerts,.calendar-toolbar,.viewhead .row,.day-load,.new-mark{display:none!important}
-  .activity-card.voice-new{box-shadow:none}
-  body.printing-week .week-grid{grid-template-columns:repeat(4,1fr);gap:8px}
-  body.printing-week .activity-name{font-size:14px}
-  body.printing-day #weeklyView,body.printing-week #dailyView{display:none!important}
-  body.printing-day #dailyView{display:block!important}
-  body.printing-day .daily-slot{break-inside:avoid}
-  body.printing-day .activity-name{font-size:18px}
+  @page{size:landscape;margin:10mm}
+  html,body{background:#fff!important}
+  body>.app,#modalRoot,#toast{display:none!important}
+  .print-area{display:block!important;color:#000;font:11pt/1.3 system-ui,-apple-system,"Segoe UI",sans-serif}
+  body.printing-day .print-week,body:not(.printing-day) .print-day{display:none!important}
+  .print-area h1{font-size:16pt;margin:0 0 8px}
+  .p-table{width:100%;border-collapse:collapse;table-layout:fixed}
+  .p-table th,.p-table td{border:1px solid #777;padding:5px;vertical-align:top;text-align:left}
+  .p-table thead th{background:#eee;font-size:10.5pt}
+  .p-table thead th small{font-weight:400}
+  .p-table th.p-period{width:90px;background:#eee;font-size:10.5pt}
+  .p-table td{height:42mm}
+  .p-act{display:block;border-radius:4px;padding:3px 5px;margin:0 0 4px;font-size:10.5pt;-webkit-print-color-adjust:exact;print-color-adjust:exact;break-inside:avoid}
+  .p-act.green{background:#b8e2c3}.p-act.yellow{background:#f8e5a0}.p-act.red{background:#f2b9b5}
+  .p-shape{font-weight:700}
+  .p-lock{font-size:9pt;font-style:italic}
+  .p-day td{height:45mm}
+  .p-day .p-act{font-size:16pt;padding:6px 8px}
+  .p-day th.p-period{width:140px;font-size:14pt}
+  .p-empty{color:#666;font-size:14pt}
+  .p-legend{display:flex;gap:10px;align-items:center;margin-top:8px;font-size:10pt}
+  .p-legend .p-act{display:inline-block;margin:0}
+  .p-printed{margin-left:auto;color:#555}
 }
+

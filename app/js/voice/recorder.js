@@ -7,10 +7,71 @@ import { MAX_RECORDING_SECONDS } from '../config.js';
 import { $, esc, showPanelModal, closeModal, toast } from '../ui-kit.js';
 import { saveNote, processNote, applyText, undoChange } from './notes.js';
 import { onStatus, getStatus } from './transcribe.js';
+import { pcmWav } from './wav.js';
 
-function pickMime() {
-  const options = ['audio/mp4', 'audio/webm;codecs=opus', 'audio/webm', 'audio/ogg'];
-  return options.find((m) => window.MediaRecorder?.isTypeSupported?.(m)) || '';
+// Records raw sound with the Web Audio API and builds a plain 16 kHz WAV file ourselves.
+// (MediaRecorder gives each browser's own format, e.g. MP4 in Chrome, which some browsers
+// cannot read back. A WAV built by hand works the same everywhere, like the device's notes.)
+class PcmRecorder {
+  async start() {
+    this.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const AC = window.AudioContext || window.webkitAudioContext;
+    this.ctx = new AC();
+    await this.ctx.resume();
+    this.source = this.ctx.createMediaStreamSource(this.stream);
+    this.node = this.ctx.createScriptProcessor(4096, 1, 1);
+    this.chunks = [];
+    this.node.onaudioprocess = (e) => this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    this.source.connect(this.node);
+    this.node.connect(this.ctx.destination); // needed for the browser to run it; the output stays silent
+    this.recording = true;
+  }
+
+  // Stops and returns a 16 kHz, 16-bit mono WAV as an ArrayBuffer.
+  async stop() {
+    this.recording = false;
+    this.node.disconnect();
+    this.source.disconnect();
+    this.stream.getTracks().forEach((t) => t.stop());
+    const rate = this.ctx.sampleRate;
+    await this.ctx.close?.();
+    const length = this.chunks.reduce((n, c) => n + c.length, 0);
+    const all = new Float32Array(length);
+    let o = 0;
+    for (const c of this.chunks) { all.set(c, o); o += c.length; }
+    // Resample to 16 kHz (what Whisper uses; also 3x smaller than 48 kHz).
+    const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil((length * 16000) / rate)), 16000);
+    const buffer = offline.createBuffer(1, Math.max(1, length), rate);
+    buffer.getChannelData(0).set(all);
+    const src = offline.createBufferSource();
+    src.buffer = buffer;
+    src.connect(offline.destination);
+    src.start();
+    const out = (await offline.startRendering()).getChannelData(0);
+    const samples = new Int16Array(out.length);
+    for (let i = 0; i < out.length; i++) samples[i] = Math.max(-32768, Math.min(32767, Math.round(out[i] * 32767)));
+    return pcmWav(samples, 16000);
+  }
+
+  cancel() {
+    if (!this.recording) return;
+    this.recording = false;
+    try { this.node.disconnect(); this.source.disconnect(); } catch (e) { /* already stopped */ }
+    this.stream?.getTracks().forEach((t) => t.stop());
+    this.ctx?.close?.();
+  }
+}
+
+function micHelp(e) {
+  const mac = /Mac/.test(navigator.platform || '') && !/iPad|iPhone/.test(navigator.userAgent) && navigator.maxTouchPoints < 2;
+  if (e?.name === 'NotAllowedError' || e?.name === 'SecurityError') {
+    return mac
+      ? 'The microphone is blocked. Allow it in the browser (lock icon next to the address), and on a Mac also in System Settings → Privacy & Security → Microphone → turn on your browser, then reopen it.'
+      : 'The microphone is blocked. Allow it in the browser settings, or use “Type instead”.';
+  }
+  if (e?.name === 'NotFoundError') return 'No microphone was found on this device. Use “Type instead”.';
+  if (e?.name === 'NotReadableError') return 'The microphone is busy or blocked by the system. Close other apps using it, and on a Mac check System Settings → Privacy & Security → Microphone.';
+  return 'The microphone could not start (' + (e?.message || e) + '). Use “Type instead”, or record on the reminder device.';
 }
 
 export function openVoiceModal() {
@@ -29,55 +90,53 @@ export function openVoiceModal() {
     <div class="modal-actions"><button type="button" id="closeVoice">Close</button></div>`);
 
   const status = $('recStatus');
-  let recorder = null, chunks = [], timer = null, startedAt = 0, stream = null;
-
-  const stopTimer = () => { clearInterval(timer); timer = null; };
-  const cleanup = () => { stopTimer(); stream?.getTracks().forEach((t) => t.stop()); stream = null; };
+  let recorder = null, timer = null, startedAt = 0;
 
   const unsub = onStatus((s) => {
     if (s.state === 'downloading') status.textContent = `Preparing speech understanding (first time only)… ${Math.round((s.progress || 0) * 100)} %`;
   });
 
-  $('closeVoice').onclick = () => { if (recorder?.state === 'recording') recorder.stop(); cleanup(); unsub(); closeModal(); };
+  const setRecordingLook = (on) => {
+    $('recBtn').setAttribute('aria-pressed', String(on));
+    $('recBtn').classList.toggle('recording', on);
+    $('recLabel').textContent = on ? 'Stop' : 'Record another';
+  };
+
+  async function finish() {
+    clearInterval(timer);
+    setRecordingLook(false);
+    const r = recorder;
+    recorder = null;
+    const wav = await r.stop();
+    if (Date.now() - startedAt < 700) { status.textContent = 'That was very short. Press once to start, again to stop.'; return; }
+    status.textContent = getStatus().state === 'ready' ? 'Listening to your note…' : 'Preparing speech understanding (first time only)…';
+    const note = await saveNote({ source: 'ipad', bytes: wav, mime: 'audio/wav', recordedAt: startedAt });
+    showResults(await processNote(note.id));
+  }
+
+  $('closeVoice').onclick = () => { clearInterval(timer); recorder?.cancel(); unsub(); closeModal(); };
 
   $('recBtn').onclick = async () => {
-    if (recorder?.state === 'recording') { recorder.stop(); return; }
-    if (!navigator.mediaDevices?.getUserMedia || !window.MediaRecorder) {
+    if (recorder?.recording) { finish(); return; }
+    if (!navigator.mediaDevices?.getUserMedia || !(window.AudioContext || window.webkitAudioContext)) {
       status.textContent = 'This browser cannot record. Use “Type instead”, or record on the reminder device.';
       return;
     }
+    recorder = new PcmRecorder();
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+      await recorder.start();
     } catch (e) {
-      status.textContent = 'Microphone permission was not given. You can allow it in the browser settings, or use “Type instead”.';
+      recorder = null;
+      status.textContent = micHelp(e);
       return;
     }
-    const mime = pickMime();
-    recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-    chunks = [];
-    recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-    recorder.onstop = async () => {
-      cleanup();
-      $('recBtn').setAttribute('aria-pressed', 'false');
-      $('recBtn').classList.remove('recording');
-      $('recLabel').textContent = 'Record another';
-      const blob = new Blob(chunks, { type: recorder.mimeType || mime || 'audio/mp4' });
-      if (Date.now() - startedAt < 700) { status.textContent = 'That was very short. Press once to start, again to stop.'; return; }
-      status.textContent = getStatus().state === 'ready' ? 'Listening to your note…' : 'Preparing speech understanding (first time only)…';
-      const note = await saveNote({ source: 'ipad', bytes: await blob.arrayBuffer(), mime: blob.type, recordedAt: startedAt });
-      const done = await processNote(note.id);
-      showResults(done);
-    };
-    recorder.start();
     startedAt = Date.now();
-    $('recBtn').setAttribute('aria-pressed', 'true');
-    $('recBtn').classList.add('recording');
-    $('recLabel').textContent = 'Stop';
+    setRecordingLook(true);
     status.textContent = 'Recording… press Stop when you are done.';
     timer = setInterval(() => {
       const s = Math.floor((Date.now() - startedAt) / 1000);
       $('recTimer').textContent = `${s} s of ${MAX_RECORDING_SECONDS}`;
-      if (s >= MAX_RECORDING_SECONDS && recorder.state === 'recording') recorder.stop();
+      if (s >= MAX_RECORDING_SECONDS && recorder?.recording) finish();
     }, 250);
   };
 

@@ -10,7 +10,7 @@ import { $, toast } from './ui-kit.js';
 import { renderWeek, renderAlerts, changeWeek, suggestMove, repeatLastWeek } from './ui-week.js';
 import { renderDaily } from './ui-daily.js';
 import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, handleLibraryClick } from './ui-library.js';
-import { printWeek, printDay } from './print.js';
+import { printWeek, printDay, renderPrintArea } from './print.js';
 import { connect, disconnect, sync, renderDemoPanel } from './ui-device.js';
 import { openVoiceModal } from './voice/recorder.js';
 import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCount, clearNewMarks } from './voice/inbox.js';
@@ -42,6 +42,7 @@ onRender(renderDaily);
 onRender(renderLibrary);
 onRender(renderBanner);
 onRender(applySettings);
+onRender(renderPrintArea);
 onRender(() => { if (!$('voiceView').classList.contains('hidden')) renderVoiceView(); });
 
 export function showView(name) {
@@ -66,8 +67,8 @@ $('voiceBtn').onclick = openVoiceModal;
 $('voiceRecordBtn2').onclick = openVoiceModal;
 $('processNotesBtn').onclick = () => processAll().then(renderVoiceView);
 $('dailySelect').addEventListener('change', (e) => { $('dailySelect2').value = e.target.value; showView('daily'); });
-$('dailySelect2').addEventListener('change', renderDaily);
-$('printBtn').addEventListener('click', () => printWeek(showView));
+$('dailySelect2').addEventListener('change', () => { renderDaily(); renderPrintArea(); });
+$('printBtn').addEventListener('click', printWeek);
 $('dailyPrint').addEventListener('click', printDay);
 $('openAddActivity').onclick = () => activityForm();
 $('weeklyAddActivity').onclick = () => createAndScheduleActivity($('dailySelect').value || 'Monday', 'Morning');

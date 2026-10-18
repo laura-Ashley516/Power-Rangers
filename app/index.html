@@ -29,7 +29,6 @@
   <div class="side-note">Tip: drag activities to reschedule them.</div>
 </nav>
 <main class="main-panel">
-<div class="print-only print-header"><strong id="printTitle">My week</strong> <span id="printDate"></span></div>
 <section id="weeklyView" class="view">
   <div class="viewhead"><div><h2>Weekly schedule</h2><p>Plan your week, one manageable activity at a time.</p></div><div class="row"><button class="primary" id="weeklyAddActivity">＋ Add activity</button><button id="repeatWeekBtn">Use last week</button></div></div>
   <div class="calendar-toolbar" aria-label="Calendar week navigation"><div class="calendar-nav"><button id="prevWeekBtn" aria-label="Previous week">← Previous</button><button id="todayWeekBtn">This week</button><button id="nextWeekBtn" aria-label="Next week">Next →</button></div><strong id="weekRangeLabel" aria-live="polite">This week</strong></div>
@@ -76,6 +75,7 @@
 </main>
 </div>
 </div>
+<div id="printArea" class="print-area" aria-hidden="true"></div>
 <div id="modalRoot"></div><div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 <script type="module" src="js/main.js"></script>
 </body>
