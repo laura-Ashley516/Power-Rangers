@@ -391,7 +391,7 @@ $('connectBtn').onclick=async()=>{
  if(!navigator.bluetooth){$('deviceStatus').textContent='Bluetooth unavailable in this browser';toast('Use a Web Bluetooth compatible browser on a supported device.');return}
  try{
  $('deviceStatus').textContent='Searching for reminder device…';
- device=await navigator.bluetooth.requestDevice({filters:[{name:'Barbara Scheduler'}],optionalServices:[SERVICE_UUID]});
+ device=await navigator.bluetooth.requestDevice({filters:[{name:'PWR Reminder'}],optionalServices:[SERVICE_UUID]});
  device.addEventListener('gattserverdisconnected',()=>{rxCharacteristic=null;txCharacteristic=null;setDeviceConnected(false,'Device disconnected')});
  const server=await device.gatt.connect();const service=await server.getPrimaryService(SERVICE_UUID);
  rxCharacteristic=await service.getCharacteristic(RX_UUID);txCharacteristic=await service.getCharacteristic(TX_UUID);

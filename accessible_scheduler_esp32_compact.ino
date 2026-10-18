@@ -374,7 +374,7 @@ void setup() {
   tft.println("Waiting for schedule...");
   delay(900);
 
-  BLEDevice::init("Barbara Scheduler");
+  BLEDevice::init("PWR Reminder");
   BLEServer *server = BLEDevice::createServer();
   server->setCallbacks(new MyServerCallbacks());
   BLEService *service = server->createService(SERVICE_UUID);

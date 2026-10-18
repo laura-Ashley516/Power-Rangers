@@ -1,0 +1,10 @@
+{
+  "name": "pwr-planner",
+  "private": true,
+  "type": "module",
+  "description": "Offline-first accessible weekly planner. No build step: open index.html through a local web server.",
+  "scripts": {
+    "test": "node tests/run.js",
+    "start": "python3 -m http.server 8000"
+  }
+}
