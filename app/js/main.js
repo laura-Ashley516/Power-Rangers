@@ -221,13 +221,33 @@ const noSW = new URLSearchParams(location.search).has('nosw');
 if ('serviceWorker' in navigator) {
   if (noSW) navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
   else if (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+    let reloading = false;
+    // A new version is waiting: offer a button (nothing changes until the user chooses it,
+    // otherwise it is used the next time the planner is opened).
+    const offerUpdate = (reg) => {
+      if (!reg.waiting || !navigator.serviceWorker.controller) return;
+      $('updateBar').classList.remove('hidden');
+      $('updateNowBtn').onclick = () => reg.waiting?.postMessage('SKIP_WAITING');
+    };
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      if (reloading) return;
+      reloading = true;
+      location.reload();
+    });
     navigator.serviceWorker.register('./sw.js').then((reg) => {
+      offerUpdate(reg);
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;
-        w?.addEventListener('statechange', () => {
-          if (w.state === 'installed' && navigator.serviceWorker.controller) toast('An update is ready. It will be used the next time you open the planner.', 5000);
-        });
+        w?.addEventListener('statechange', () => { if (w.state === 'installed') offerUpdate(reg); });
       });
+      $('checkUpdateBtn').onclick = async () => {
+        $('updateStatus').textContent = 'Checking…';
+        try { await reg.update(); } catch (e) { /* offline */ }
+        setTimeout(() => {
+          $('updateStatus').textContent = reg.waiting || reg.installing ? 'A new version is ready: use the button at the top.' : `You have the latest version (${APP_VERSION}).`;
+          offerUpdate(reg);
+        }, 1500);
+      };
     }).catch(() => { /* offline mode unavailable in this browser */ });
   }
 }

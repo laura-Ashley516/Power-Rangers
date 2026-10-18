@@ -161,3 +161,6 @@ button.primary{background:#28543b}
 
 .level-meter{width:220px;height:8px;border-radius:99px;background:#e4e8e0;overflow:hidden}
 .level-fill{height:100%;width:0;background:#5c9a57;transition:width .1s linear}
+.update-bar{position:fixed;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:12px;align-items:center;background:#1e3527;color:#fff;padding:10px 12px 10px 16px;border-radius:12px;box-shadow:0 6px 22px #0003;z-index:25;max-width:92vw}
+.update-bar button{min-height:40px}
+@media print{.update-bar{display:none!important}}

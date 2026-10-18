@@ -6,7 +6,7 @@
 //
 // Track: B - Data + device
 
-const CACHE = 'pwr-app-0.4.2';
+const CACHE = 'pwr-app-0.4.3';
 const RUNTIME = 'pwr-runtime';
 const APP_FILES = [
   './', './index.html', './manifest.json', './css/styles.css',
@@ -18,9 +18,13 @@ const APP_FILES = [
 ];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(APP_FILES)));
+  // cache: 'reload' = always fetch fresh files from the network, never an older copy the browser kept.
+  event.waitUntil(caches.open(CACHE).then((c) => c.addAll(APP_FILES.map((u) => new Request(u, { cache: 'reload' })))));
   // No skipWaiting(): the new version waits until the planner is closed, so nothing changes mid-use.
 });
+
+// The page's "Use it now" button asks the waiting version to take over.
+self.addEventListener('message', (event) => { if (event.data === 'SKIP_WAITING') self.skipWaiting(); });
 
 self.addEventListener('activate', (event) => {
   event.waitUntil(caches.keys().then((keys) => Promise.all(keys.filter((k) => k !== CACHE && k !== RUNTIME).map((k) => caches.delete(k)))));
