@@ -3,7 +3,9 @@
 //
 // Track: C - Rules + voice
 
-const SILENCE_RMS = 0.006; // below this a clip is treated as silent (Whisper invents text on silence)
+// A clip is treated as silent when even its loudest 50 ms stays below this level
+// (Whisper invents words from silence, so silent clips are not sent to it).
+const SILENCE_WINDOW_RMS = 0.004;
 
 let worker = null;
 let nextId = 1;
@@ -72,16 +74,40 @@ export async function decodeTo16k(arrayBuffer) {
   return rendered.getChannelData(0);
 }
 
-export function isSilent(samples) {
-  let sum = 0;
-  for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i];
-  return Math.sqrt(sum / Math.max(1, samples.length)) < SILENCE_RMS;
+// Loudest 50 ms of the clip (16 kHz samples), and the highest single sample.
+export function measure(samples) {
+  const win = 800;
+  let loudest = 0, peak = 0;
+  for (let start = 0; start < samples.length; start += win) {
+    let sum = 0;
+    const end = Math.min(samples.length, start + win);
+    for (let i = start; i < end; i++) {
+      const v = samples[i];
+      sum += v * v;
+      if (Math.abs(v) > peak) peak = Math.abs(v);
+    }
+    loudest = Math.max(loudest, Math.sqrt(sum / Math.max(1, end - start)));
+  }
+  return { loudest, peak };
+}
+
+export const isSilent = (samples) => measure(samples).loudest < SILENCE_WINDOW_RMS;
+
+// Quiet microphones: raise the volume so the loudest sound reaches about 90 % (at most x20).
+function normalize(samples) {
+  const { peak } = measure(samples);
+  if (peak <= 0 || peak >= 0.5) return samples;
+  const gain = Math.min(0.9 / peak, 20);
+  const out = new Float32Array(samples.length);
+  for (let i = 0; i < samples.length; i++) out[i] = samples[i] * gain;
+  return out;
 }
 
 // Returns the words heard ('' if the clip is silent).
 export async function transcribe(arrayBuffer, model) {
-  const audio = await decodeTo16k(arrayBuffer);
-  if (isSilent(audio)) return '';
+  const decoded = await decodeTo16k(arrayBuffer);
+  if (isSilent(decoded)) return '';
+  const audio = normalize(decoded);
   if (status.state !== 'ready') setStatus({ state: status.state === 'idle' ? 'downloading' : status.state, model });
   const id = nextId++;
   const result = new Promise((resolve, reject) => pending.set(id, { resolve, reject }));

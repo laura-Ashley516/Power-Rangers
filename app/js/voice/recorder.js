@@ -21,7 +21,16 @@ class PcmRecorder {
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.node = this.ctx.createScriptProcessor(4096, 1, 1);
     this.chunks = [];
-    this.node.onaudioprocess = (e) => this.chunks.push(new Float32Array(e.inputBuffer.getChannelData(0)));
+    this.level = 0;     // loudness of the last ~0.1 s (0 = nothing, 1 = maximum), for the volume bar
+    this.maxLevel = 0;  // loudest moment of the whole recording
+    this.node.onaudioprocess = (e) => {
+      const data = e.inputBuffer.getChannelData(0);
+      this.chunks.push(new Float32Array(data));
+      let sum = 0;
+      for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
+      this.level = Math.sqrt(sum / data.length);
+      this.maxLevel = Math.max(this.maxLevel, this.level);
+    };
     this.source.connect(this.node);
     this.node.connect(this.ctx.destination); // needed for the browser to run it; the output stays silent
     this.recording = true;
@@ -74,12 +83,20 @@ function micHelp(e) {
   return 'The microphone could not start (' + (e?.message || e) + '). Use “Type instead”, or record on the reminder device.';
 }
 
+function noSoundHelp() {
+  const mac = /Mac/.test(navigator.platform || '') && navigator.maxTouchPoints < 2;
+  return mac
+    ? 'The microphone sent no sound. On a Mac: System Settings → Privacy & Security → Microphone → turn on your browser, then quit and reopen it. Also check System Settings → Sound → Input: the right microphone is selected and its level moves when you speak.'
+    : 'The microphone sent no sound. Check that the browser is allowed to use the microphone and that the right microphone is selected.';
+}
+
 export function openVoiceModal() {
   const modal = showPanelModal('Voice note', `
     <p>Say what to change, for example <em>“Add groceries on Tuesday afternoon”</em>, <em>“Move my walk to Friday”</em> or <em>“Cancel laundry”</em>.</p>
     <div class="record-area">
       <button type="button" id="recBtn" class="record-button" aria-pressed="false"><span class="rec-dot" aria-hidden="true"></span><span id="recLabel">Start recording</span></button>
-      <div id="recTimer" class="muted" aria-live="polite">Up to ${MAX_RECORDING_SECONDS} seconds.</div>
+      <div class="level-meter" aria-hidden="true"><div id="recLevel" class="level-fill"></div></div>
+      <div id="recTimer" class="muted" aria-live="polite">Up to ${MAX_RECORDING_SECONDS} seconds. The green bar moves when the microphone hears you.</div>
     </div>
     <div id="recStatus" class="notice" role="status" aria-live="polite">Understood on this device. Nothing is sent online.</div>
     <div id="recResults"></div>
@@ -90,7 +107,7 @@ export function openVoiceModal() {
     <div class="modal-actions"><button type="button" id="closeVoice">Close</button></div>`);
 
   const status = $('recStatus');
-  let recorder = null, timer = null, startedAt = 0;
+  let recorder = null, timer = null, startedAt = 0, lastMaxLevel = 0;
 
   const unsub = onStatus((s) => {
     if (s.state === 'downloading') status.textContent = `Preparing speech understanding (first time only)… ${Math.round((s.progress || 0) * 100)} %`;
@@ -108,7 +125,10 @@ export function openVoiceModal() {
     const r = recorder;
     recorder = null;
     const wav = await r.stop();
+    $('recLevel').style.width = '0%';
     if (Date.now() - startedAt < 700) { status.textContent = 'That was very short. Press once to start, again to stop.'; return; }
+    if (r.maxLevel === 0) { status.textContent = noSoundHelp(); return; }
+    lastMaxLevel = r.maxLevel;
     status.textContent = getStatus().state === 'ready' ? 'Listening to your note…' : 'Preparing speech understanding (first time only)…';
     const note = await saveNote({ source: 'ipad', bytes: wav, mime: 'audio/wav', recordedAt: startedAt });
     showResults(await processNote(note.id));
@@ -134,6 +154,8 @@ export function openVoiceModal() {
     setRecordingLook(true);
     status.textContent = 'Recording… press Stop when you are done.';
     timer = setInterval(() => {
+      // Volume bar: speech is usually 0.02-0.2, so the scale is stretched for quiet microphones.
+      if (recorder) $('recLevel').style.width = Math.min(100, Math.round(Math.sqrt(recorder.level) * 220)) + '%';
       const s = Math.floor((Date.now() - startedAt) / 1000);
       $('recTimer').textContent = `${s} s of ${MAX_RECORDING_SECONDS}`;
       if (s >= MAX_RECORDING_SECONDS && recorder?.recording) finish();
@@ -149,7 +171,12 @@ export function openVoiceModal() {
   function showResults(note) {
     if (!note) return;
     if (note.status === 'error') { status.textContent = `Speech understanding could not run: ${note.error}. The note is saved in Voice notes; try again later.`; return; }
-    if (note.status === 'empty') { status.textContent = 'I did not hear any words. Try again a little closer to the microphone.'; return; }
+    if (note.status === 'empty') {
+      status.textContent = lastMaxLevel < 0.004
+        ? 'The recording was almost silent. ' + noSoundHelp()
+        : 'I did not hear any words. Try again a little closer to the microphone, speaking clearly.';
+      return;
+    }
     status.innerHTML = `I heard: <strong>“${esc(note.transcript)}”</strong>`;
     $('recResults').innerHTML = renderResults(note.results);
     $('recResults').querySelectorAll('[data-undo]').forEach((b) => (b.onclick = () => {
