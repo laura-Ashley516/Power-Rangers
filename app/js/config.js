@@ -1,6 +1,6 @@
 // Shared constants. Change values here, not in the other files.
 
-export const APP_VERSION = '0.4.3';
+export const APP_VERSION = '0.4.4';
 
 export const DAYS = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
 export const PERIODS = ['Morning', 'Afternoon', 'Evening'];

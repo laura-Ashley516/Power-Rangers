@@ -6,25 +6,41 @@
 import { MAX_RECORDING_SECONDS } from '../config.js';
 import { $, esc, showPanelModal, closeModal, toast } from '../ui-kit.js';
 import { saveNote, processNote, applyText, undoChange } from './notes.js';
-import { onStatus, getStatus } from './transcribe.js';
+import { onStatus, getStatus, decodeTo16k, measure } from './transcribe.js';
 import { pcmWav } from './wav.js';
 
-// Records raw sound with the Web Audio API and builds a plain 16 kHz WAV file ourselves.
-// (MediaRecorder gives each browser's own format, e.g. MP4 in Chrome, which some browsers
-// cannot read back. A WAV built by hand works the same everywhere, like the device's notes.)
+// Records with TWO methods at the same time and keeps whichever actually heard something:
+//  1. raw sound through the Web Audio API (we build a plain WAV ourselves, works everywhere);
+//  2. the browser's own MediaRecorder (backup if the first one receives silence).
+// Either way, the note is saved as a plain 16 kHz WAV, like the device's notes.
+// stop() also returns a short diagnosis, shown when nothing was heard.
+const MR_TYPES = ['audio/webm;codecs=opus', 'audio/webm', 'audio/mp4', 'audio/ogg'];
+
+function floatToWav(samples, rate = 16000) {
+  const out = new Int16Array(samples.length);
+  for (let i = 0; i < samples.length; i++) out[i] = Math.max(-32768, Math.min(32767, Math.round(samples[i] * 32767)));
+  return pcmWav(out, rate);
+}
+
 class PcmRecorder {
   async start() {
     this.stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } });
+    const track = this.stream.getAudioTracks()[0];
+    this.trackInfo = { label: track?.label || 'unknown', mutedAtStart: !!track?.muted };
+
+    // Method 1: raw sound.
     const AC = window.AudioContext || window.webkitAudioContext;
     this.ctx = new AC();
-    await this.ctx.resume();
+    try { await this.ctx.resume(); } catch (e) { /* reported in the diagnosis */ }
     this.source = this.ctx.createMediaStreamSource(this.stream);
     this.node = this.ctx.createScriptProcessor(4096, 1, 1);
     this.chunks = [];
-    this.level = 0;     // loudness of the last ~0.1 s (0 = nothing, 1 = maximum), for the volume bar
+    this.calls = 0;
+    this.level = 0;     // loudness of the last ~0.1 s, for the volume bar
     this.maxLevel = 0;  // loudest moment of the whole recording
     this.node.onaudioprocess = (e) => {
       const data = e.inputBuffer.getChannelData(0);
+      this.calls++;
       this.chunks.push(new Float32Array(data));
       let sum = 0;
       for (let i = 0; i < data.length; i++) sum += data[i] * data[i];
@@ -33,43 +49,77 @@ class PcmRecorder {
     };
     this.source.connect(this.node);
     this.node.connect(this.ctx.destination); // needed for the browser to run it; the output stays silent
+
+    // Method 2: the browser's recorder, as a backup.
+    this.mrChunks = [];
+    try {
+      const type = MR_TYPES.find((t) => window.MediaRecorder?.isTypeSupported?.(t));
+      this.mr = new MediaRecorder(this.stream, type ? { mimeType: type } : undefined);
+      this.mr.ondataavailable = (e) => e.data.size && this.mrChunks.push(e.data);
+      this.mr.start(250);
+    } catch (e) { this.mr = null; }
     this.recording = true;
   }
 
-  // Stops and returns a 16 kHz, 16-bit mono WAV as an ArrayBuffer.
+  // Returns { wav: ArrayBuffer | null, diag: text }.
   async stop() {
     this.recording = false;
+    const track = this.stream.getAudioTracks()[0];
+    const diag = {
+      mic: this.trackInfo.label, mutedNow: !!track?.muted, ctx: this.ctx.state, calls: this.calls,
+      level: this.maxLevel.toFixed(4), backup: this.mr ? this.mr.mimeType || 'yes' : 'none',
+    };
+    const mrDone = this.mr && this.mr.state !== 'inactive'
+      ? new Promise((resolve) => { this.mr.onstop = resolve; this.mr.stop(); }) : Promise.resolve();
+    await mrDone;
     this.node.disconnect();
     this.source.disconnect();
     this.stream.getTracks().forEach((t) => t.stop());
     const rate = this.ctx.sampleRate;
     await this.ctx.close?.();
-    const length = this.chunks.reduce((n, c) => n + c.length, 0);
-    const all = new Float32Array(length);
-    let o = 0;
-    for (const c of this.chunks) { all.set(c, o); o += c.length; }
-    // Resample to 16 kHz (what Whisper uses; also 3x smaller than 48 kHz).
-    const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil((length * 16000) / rate)), 16000);
-    const buffer = offline.createBuffer(1, Math.max(1, length), rate);
-    buffer.getChannelData(0).set(all);
-    const src = offline.createBufferSource();
-    src.buffer = buffer;
-    src.connect(offline.destination);
-    src.start();
-    const out = (await offline.startRendering()).getChannelData(0);
-    const samples = new Int16Array(out.length);
-    for (let i = 0; i < out.length; i++) samples[i] = Math.max(-32768, Math.min(32767, Math.round(out[i] * 32767)));
-    return pcmWav(samples, 16000);
+
+    // 1. Raw sound, if it heard something.
+    if (this.maxLevel > 0) {
+      const length = this.chunks.reduce((n, c) => n + c.length, 0);
+      const all = new Float32Array(length);
+      let o = 0;
+      for (const c of this.chunks) { all.set(c, o); o += c.length; }
+      const offline = new OfflineAudioContext(1, Math.max(1, Math.ceil((length * 16000) / rate)), 16000);
+      const buffer = offline.createBuffer(1, Math.max(1, length), rate);
+      buffer.getChannelData(0).set(all);
+      const src = offline.createBufferSource();
+      src.buffer = buffer;
+      src.connect(offline.destination);
+      src.start();
+      diag.used = 'raw';
+      return { wav: floatToWav((await offline.startRendering()).getChannelData(0)), diag };
+    }
+
+    // 2. Backup recorder.
+    const blob = new Blob(this.mrChunks, { type: this.mr?.mimeType || '' });
+    diag.backupBytes = blob.size;
+    if (blob.size > 0) {
+      try {
+        const samples = await decodeTo16k(await blob.arrayBuffer());
+        diag.backupLevel = measure(samples).loudest.toFixed(4);
+        if (measure(samples).peak > 0) { diag.used = 'backup'; return { wav: floatToWav(samples), diag }; }
+      } catch (e) { diag.backupError = e.message || String(e); }
+    }
+    diag.used = 'none';
+    return { wav: null, diag };
   }
 
   cancel() {
     if (!this.recording) return;
     this.recording = false;
+    try { if (this.mr?.state !== 'inactive') this.mr?.stop(); } catch (e) { /* ignore */ }
     try { this.node.disconnect(); this.source.disconnect(); } catch (e) { /* already stopped */ }
     this.stream?.getTracks().forEach((t) => t.stop());
     this.ctx?.close?.();
   }
 }
+
+const diagText = (d) => Object.entries(d).map(([k, v]) => `${k}: ${v}`).join(' · ');
 
 function micHelp(e) {
   const mac = /Mac/.test(navigator.platform || '') && !/iPad|iPhone/.test(navigator.userAgent) && navigator.maxTouchPoints < 2;
@@ -124,11 +174,14 @@ export function openVoiceModal() {
     setRecordingLook(false);
     const r = recorder;
     recorder = null;
-    const wav = await r.stop();
+    const { wav, diag } = await r.stop();
     $('recLevel').style.width = '0%';
     if (Date.now() - startedAt < 700) { status.textContent = 'That was very short. Press once to start, again to stop.'; return; }
-    if (r.maxLevel === 0) { status.textContent = noSoundHelp(); return; }
-    lastMaxLevel = r.maxLevel;
+    if (!wav) {
+      status.innerHTML = `${esc(noSoundHelp())}<br><small class="diag">Details for the team: ${esc(diagText(diag))}</small>`;
+      return;
+    }
+    lastMaxLevel = diag.used === 'raw' ? r.maxLevel : 1;
     status.textContent = getStatus().state === 'ready' ? 'Listening to your note…' : 'Preparing speech understanding (first time only)…';
     const note = await saveNote({ source: 'ipad', bytes: wav, mime: 'audio/wav', recordedAt: startedAt });
     showResults(await processNote(note.id));
