@@ -1,10 +1,10 @@
-# Bluetooth protocol (app ↔ device)
+# Device protocol (app ↔ device, Bluetooth and Wi-Fi)
 
 This file is the **contract** between the software and hardware teams. If both sides follow it, they can work in parallel: software tests against the fake device built into the app, hardware tests with a simple sender.
 
 **Rule:** change this file first (in a pull request reviewed by one person from each team), then the code.
 
-## Connection
+## Bluetooth connection
 
 | Item | Value |
 |---|---|
@@ -75,6 +75,38 @@ dev → OK|DEL|<id>
 - **Audio format:** WAV, **IMA ADPCM** (format `0x11`, 4 bits per sample), mono, **8 000 Hz**, blocks of 256 bytes (505 samples), with a `fact` chunk giving the real number of samples. Maximum **15 s** (≈ 60 KB, about 4× smaller than plain 16-bit). The app unpacks it (`app/js/voice/wav.js`) and resamples to 16 kHz for Whisper. Plain 16-bit PCM WAV is also accepted. Tested: Whisper understood 4/4 compressed sample notes word for word.
 - If anything is missing or the sum is wrong, the app simply asks `NOTE_GET|<id>` again. The note is only deleted after `NOTE_DEL`.
 - The device sends chunks with a small pause (≈ 10 ms) so the phone/iPad can keep up.
+
+### Quiet times (v2, planned for the firmware)
+```
+app → QUIET_START|<n>
+app → Q|Sunday|Morning                  (n lines: day|period)
+app → QUIET_END|<n>
+dev → QUIET_RECEIVED|<n>
+```
+- Sent right after a schedule sync, **only to devices that answer `HELLO|2`**. v1 devices never receive it (they would answer `ERR|UNKNOWN`).
+- During a quiet block the device does **not vibrate or beep**. A reminder that falls in it waits and is shown when the block ends.
+- The list replaces the previous one (send all blocks every time). Saved on the microSD like the schedule.
+
+## Wi-Fi (through an MQTT broker)
+
+Same commands as above, carried by MQTT instead of Bluetooth (why: [wifi-plan.md](wifi-plan.md)). The app connects with **MQTT over secure WebSocket** (`wss://…`); the device connects to the **same broker** with **MQTT over TLS** (port 8883 on most brokers).
+
+| Item | Value |
+|---|---|
+| Pairing code | 12 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789`, shown as `ABCD-EFGH-JKLM`. Made by the app, typed into the device once |
+| `<id>` | SHA-256 of the 12 characters (upper case, **no dashes**, UTF-8), first **6 bytes** as **lower-case hex** (12 characters). Example: code `ABCD-EFGH-JKLM` → hash of `ABCDEFGHJKLM` |
+| App → device | topic `pwr/<id>/app` |
+| Device → app | topic `pwr/<id>/dev` |
+| Device presence | topic `pwr/<id>/status`, **retained**: the device publishes `online` after connecting and sets its **last will** to `offline` (also retained) |
+| QoS | 1 for everything |
+
+- **One MQTT message = one protocol line.** No `+` pieces: in `HELLO` the device reports a `<payload>` of `1024` (or its real MQTT buffer size minus 64), so the app never needs to cut messages.
+- Voice note chunks keep the same `D|<seq>|<base64>` format (max 120 raw bytes per line), so the note code is shared with Bluetooth.
+- The app waits up to **6 s** for `HELLO` over Wi-Fi. If the device does not answer, the app says the device is offline (there is no v0 over Wi-Fi).
+- **Device setup (once):** if it has no saved Wi-Fi, the device opens a setup hotspot **`PWR-Setup`** (WiFiManager) with fields: home Wi-Fi name + password, broker host, broker port, broker username + password, pairing code.
+- **Prototype 2:** the device stays connected while it is switched on at home. **Later (battery):** connect only for a sync (Sync button or every N minutes), then turn Wi-Fi off.
+- **Privacy:** the connection is encrypted (TLS). End-to-end encryption with a key derived from the pairing code is planned, so the broker cannot read the messages either.
+- **Testing:** a public test broker (e.g. `wss://broker.emqx.io:8084/mqtt`, no password) is fine with **demo data only**: anyone can read a public broker. `tools/wifi-fake-device.mjs` is a pretend device that answers over Wi-Fi exactly like the firmware should.
 
 ## v0 — what the first-try code does (still accepted)
 

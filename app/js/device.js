@@ -1,7 +1,8 @@
 // The ONLY file that talks to the reminder device. Implements docs/protocol.md (v1, falls back to v0).
 //
-// Two transports with the same shape { connect, disconnect, send(text), onPacket, onDisconnect, connected, name }:
+// Transports with the same shape { connect, disconnect, send(text), onPacket, onDisconnect, connected, name }:
 //   - BleTransport:  the real device over Web Bluetooth (Chrome/Edge on a laptop, Bluefy on iPad)
+//   - MqttTransport: the real device over Wi-Fi through an MQTT broker (device-wifi.js, any browser)
 //   - FakeTransport: a pretend device inside the app, for testing without hardware
 // A transport moves raw Bluetooth packets. DeviceLink speaks the protocol on top: it glues
 // "+" pieces back together (small packets) and cuts long messages into pieces when needed.
@@ -221,11 +222,12 @@ export class DeviceLink {
     try {
       this.lines = [];
       await this.t.send('HELLO|1'); // short enough for any packet size
-      const [, v, name, count, notes, payload] = (await this.until(['HELLO|'], 2000)).split('|');
+      const [, v, name, count, notes, payload] = (await this.until(['HELLO|'], this.t.helloTimeout || 2000)).split('|');
       this.version = Number(v) || 1;
       this.payload = Number(payload) || null;
       return { version: this.version, name, scheduleCount: Number(count) || 0, notesCount: Number(notes) || 0, payload: this.payload };
     } catch (e) {
+      if (this.t.needsV1) throw new Error('The device did not answer. Check that it is switched on and connected to Wi-Fi.');
       this.version = 0; // first-try firmware: no HELLO, no backup, no notes
       return { version: 0, scheduleCount: null, notesCount: 0 };
     }
@@ -251,6 +253,18 @@ export class DeviceLink {
     for (const l of lines) { await this.t.send(l); await sleep(120); }
     await this.t.send('SCHEDULE_END');
     try { await this.until(['SCHEDULE_RECEIVED'], 3000); } catch (e) { /* old firmware may not answer */ }
+  }
+
+  // Quiet blocks (protocol v2): the device does not vibrate or beep there; reminders wait until the block ends.
+  // Older (v1) devices do not know the command, so it is only sent to v2 devices.
+  async sendQuiet(lines) {
+    if (!(this.version >= 2)) return false;
+    this.lines = [];
+    await this.send(`QUIET_START|${lines.length}`);
+    for (const l of lines) { await this.send(`Q|${l}`); await sleep(20); }
+    await this.send(`QUIET_END|${lines.length}`);
+    await this.until(['QUIET_RECEIVED'], 5000);
+    return true;
   }
 
   async getBackup() {

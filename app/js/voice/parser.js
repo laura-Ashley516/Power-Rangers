@@ -19,8 +19,13 @@ const WEEKDAYS = DAYS.map((d) => d.toLowerCase());
 const ALIASES = {
   physio: 'physiotherapy', therapy: 'physiotherapy', grocery: 'groceries', shopping: 'groceries', supermarket: 'groceries',
   mass: 'church', service: 'church', walking: 'walk', stroll: 'walk', washing: 'laundry', wash: 'laundry', clothes: 'laundry',
-  cook: 'meal', cooking: 'meal', dinner: 'meal', lunch: 'meal', supper: 'meal', reading: 'read', relaxing: 'relax', rest: 'relax',
+  cook: 'meal', cooking: 'meal', dinner: 'meal', supper: 'meal', reading: 'read', relaxing: 'relax',
   phone: 'call', calling: 'call',
+  // The client's own activities (store.js): words she is likely to say for them.
+  doctor: 'medical', dentist: 'medical', appointment: 'medical', clinic: 'medical', checkup: 'medical', hospital: 'medical',
+  clarinet: 'music', lesson: 'music', bedding: 'bed', sheets: 'bed', towels: 'bed',
+  dishes: 'dishwasher', dish: 'dishwasher', mop: 'floor', mopping: 'floor', floor: 'floor', vacuuming: 'vacuum', hoover: 'vacuum',
+  nap: 'rest', couch: 'rest', break: 'rest', hanging: 'hang', exercises: 'exercise', gym: 'exercise', friends: 'friend', prep: 'prep',
 };
 
 const ENERGY_WORDS = {
@@ -32,7 +37,7 @@ const ENERGY_WORDS = {
 const STOP = new Set(('i me my mine the a an to on for at in from of with please can could would you also and then so just that this these it its ' +
   'um uh uhm er ah oh okay ok well is are be will ill id lets let us we our some energy level activity thing stuff ' +
   'next coming week day o clock oclock time around about by until till into back over there here really maybe ' +
-  'need want have got going gonna remember remind').split(' '));
+  'need want have got going gonna remember remind go for do').split(' '));
 
 const REMOVE = /\b(cancel|cancelled|canceled|remove|delete|drop|skip|scrap|clear|get rid of|take off|no longer|not going|dont need|do not need|not doing|wont)\b/;
 const MOVE = /\b(move|moved|reschedule|rescheduled|change|push|pushed|shift|switch|bring|postpone|put off|delay|instead)\b/;
@@ -42,6 +47,9 @@ const VERB_START = /^(add|put|schedule|book|plan|move|reschedule|change|push|shi
 export function normalize(text) {
   return String(text || '').toLowerCase()
     .replace(/[’']/g, '')
+    .replace(/\bchang(e|es|ing) (the |my )?(bed|sheets|bedding)( and (the )?towels)?\b/g, 'bedding') // "change the bed" is a chore, not a move
+    .replace(/\bafter (lunch|noon)\b/g, 'afternoon')
+    .replace(/\bafter (dinner|supper)\b/g, 'evening')
     .replace(/(\d)\s*([ap])\.?\s*m\b\.?/g, '$1 $2m')   // 3pm, 3 p.m. -> 3 pm
     .replace(/[^a-z0-9:\s]/g, ' ')
     .replace(/\s+/g, ' ')
@@ -76,7 +84,11 @@ export function similarity(phrase, name) {
   const p = [...new Set(words(phrase))], n = [...new Set(words(name))];
   if (!p.length || !n.length) return 0;
   const matched = n.filter((w) => p.some((x) => sameWord(x, w))).length;
-  return (2 * matched) / (p.length + n.length);
+  const dice = (2 * matched) / (p.length + n.length);
+  // Short names for long activities: "walk" for "Walk + small groceries", "dishes" for "Unload dishwasher (part)".
+  // Everything said is in the name: count it as a match, scored by how much of the name was said.
+  const contained = p.every((x) => n.some((w) => sameWord(x, w)));
+  return contained ? Math.max(dice, 0.6 + 0.3 * (p.length / n.length)) : dice;
 }
 
 const MATCH = 0.6;

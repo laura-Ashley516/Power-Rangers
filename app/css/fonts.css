@@ -1,0 +1,3 @@
+/* Optional font (Settings → Text font). Atkinson Hyperlegible Next (Braille Institute, 2025), variable weights,
+   SIL Open Font License 1.1 (fonts/OFL.txt). The default is the iPad's own system font: see docs/design-evidence.md. */
+@font-face { font-family: "Atkinson Hyperlegible Next"; src: url("../fonts/atkinson-next-variable.woff2") format("woff2"); font-weight: 200 800; font-style: normal; font-display: swap; }

@@ -1,4 +1,4 @@
-// Reminder device page: connect, Sync now, demo device.
+// Reminder device page: connect (Bluetooth or Wi-Fi), Sync now, Wi-Fi setup, demo device.
 // Sync = hello → set clock → send the week (or restore it if this app is empty) → collect voice notes → understand them.
 //
 // Track: B - Data + device
@@ -6,7 +6,8 @@
 import { MAX_DEVICE_ACTIVITIES } from './config.js';
 import { ctx, commit } from './context.js';
 import { BleTransport, FakeTransport, DeviceLink } from './device.js';
-import { scheduleToLines, linesToSchedule, isScheduleEmpty } from './store.js';
+import { MqttTransport, newPairingCode, normalizeCode } from './device-wifi.js';
+import { scheduleToLines, linesToSchedule, isScheduleEmpty, quietLines } from './store.js';
 import { $, esc, toast } from './ui-kit.js';
 import { saveNote } from './voice/notes.js';
 import { toPlayableWav, wavInfo, encodeImaAdpcmWav } from './voice/wav.js';
@@ -15,6 +16,13 @@ import { processAll, renderVoiceView, updateCount } from './voice/inbox.js';
 let link = null;
 
 const useDemo = () => !!ctx.state.settings.demoDevice;
+const useWifi = () => !useDemo() && ctx.state.settings.connection === 'wifi';
+
+function makeTransport() {
+  if (useDemo()) return new FakeTransport();
+  if (useWifi()) return new MqttTransport(ctx.state.settings.wifi);
+  return new BleTransport();
+}
 
 function setConnected(on, msg) {
   $('deviceStatus').textContent = msg;
@@ -24,16 +32,22 @@ function setConnected(on, msg) {
 }
 
 export async function connect() {
-  const transport = useDemo() ? new FakeTransport() : new BleTransport();
-  if (!useDemo() && !BleTransport.supported()) {
+  const transport = makeTransport();
+  if (!useDemo() && !useWifi() && !BleTransport.supported()) {
     setConnected(false, 'Bluetooth is not available in this browser');
-    toast('On iPad, open the planner in the Bluefy browser. On a laptop, use Chrome or Edge. Or turn on the demo device in Settings.', 5000);
+    toast('On iPad, use Wi-Fi (see “How the planner reaches the device”) or open the planner in Bluefy. On a laptop, use Chrome or Edge.', 5000);
     return null;
   }
   try {
-    $('deviceStatus').textContent = 'Searching for the reminder device…';
+    $('deviceStatus').textContent = useWifi() ? 'Reaching the device over Wi-Fi…' : 'Searching for the reminder device…';
     await transport.connect();
     transport.onDisconnect = () => { link = null; setConnected(false, 'Device disconnected'); };
+    if (useWifi() && transport.deviceOnline === false) {
+      transport.disconnect();
+      setConnected(false, 'The device is offline');
+      toast('The device is not on Wi-Fi right now. Switch it on (or press Sync on it) and try again.', 5000);
+      return null;
+    }
     link = new DeviceLink(transport);
     const hi = await link.hello();
     link.info = hi;
@@ -42,6 +56,7 @@ export async function connect() {
     return link;
   } catch (err) {
     link = null;
+    transport.disconnect?.();
     setConnected(false, err.name === 'NotFoundError' ? 'No device selected' : 'Connection failed: ' + err.message);
     return null;
   }
@@ -72,7 +87,7 @@ async function runSync(out) {
   try {
     const info = await link.hello(); // also refreshes counts and the packet size
     await link.setTime();
-    out.textContent = 'Syncing… please keep this screen open and the device close by.';
+    out.textContent = useWifi() ? 'Syncing over Wi-Fi… please keep this screen open.' : 'Syncing… please keep this screen open and the device close by.';
 
     // 1. Week: send it, unless this app is empty and the device still has a copy (then restore).
     let weekMsg = '';
@@ -94,6 +109,8 @@ async function runSync(out) {
       out.textContent = 'Sending your week…';
       await link.sendSchedule(lines);
       weekMsg += `Week sent (${lines.length} activities).`;
+      const quiet = quietLines(ctx.state.schedule, ctx.state.library);
+      if (quiet.length && (await link.sendQuiet(quiet))) weekMsg += ` ${quiet.length} quiet time${quiet.length > 1 ? 's' : ''} sent.`;
     }
 
     // 2. Voice notes: copy each one, check it, then let the device delete it.
@@ -147,4 +164,72 @@ export function renderDemoPanel() {
     renderDemoPanel();
   };
   $('demoClearBtn').onclick = () => { FakeTransport.clearSchedule(); toast('Demo device week erased.'); renderDemoPanel(); };
+}
+
+// ---------- connection choice + Wi-Fi setup ----------
+
+const saveSettings = (changes) => commit({ ...ctx.state, settings: { ...ctx.state.settings, ...changes } });
+
+export function renderConnection() {
+  const s = ctx.state.settings;
+  $('connectionSelect').value = s.connection === 'wifi' ? 'wifi' : 'bluetooth';
+  $('wifiPanel').classList.toggle('hidden', s.connection !== 'wifi');
+  $('deviceHelp').textContent = useDemo()
+    ? 'The demo device is on (Settings): Connect and Sync use the pretend device.'
+    : s.connection === 'wifi'
+      ? 'Works in any browser, including Safari on iPad. The device must be switched on and connected to Wi-Fi.'
+      : 'On iPad, open this planner in the Bluefy browser to use Bluetooth. On a laptop, use Chrome or Edge.';
+  const w = s.wifi || {};
+  $('wifiCodeShow').textContent = normalizeCode(w.code) || '—';
+  // Fill the fields only when not being typed in.
+  if (document.activeElement?.closest?.('#wifiPanel') == null) {
+    $('wifiCode').value = w.code || '';
+    $('wifiBroker').value = w.broker || '';
+    $('wifiUser').value = w.username || '';
+    $('wifiPass').value = w.password || '';
+  }
+}
+
+function readWifiForm() {
+  const typed = $('wifiCode').value.trim();
+  const code = normalizeCode(typed);
+  if (typed && !code) { toast('The pairing code has 12 letters and digits, like ABCD-EFGH-JKLM.'); return null; }
+  return { code, broker: $('wifiBroker').value.trim(), username: $('wifiUser').value.trim(), password: $('wifiPass').value };
+}
+
+function saveWifi() {
+  const wifi = readWifiForm();
+  if (!wifi) return null;
+  disconnect();
+  saveSettings({ wifi });
+  return wifi;
+}
+
+async function testWifi() {
+  const wifi = saveWifi();
+  if (!wifi) return;
+  const out = $('wifiStatus');
+  out.textContent = 'Testing…';
+  const t = new MqttTransport(wifi);
+  try {
+    await t.connect();
+    out.textContent = t.deviceOnline === true ? 'Relay reached. The device is online: you can Sync now.'
+      : t.deviceOnline === false ? 'Relay reached. The device is offline right now (switched off or not on Wi-Fi).'
+        : 'Relay reached. The device has not connected with this pairing code yet.';
+  } catch (err) {
+    out.textContent = err.message;
+  } finally { t.disconnect(); }
+}
+
+export function wireConnection() {
+  $('connectionSelect').onchange = (e) => { disconnect(); saveSettings({ connection: e.target.value }); renderConnection(); };
+  $('wifiNewCode').onclick = () => {
+    if (normalizeCode(ctx.state.settings.wifi?.code) && !confirm('Make a new pairing code? The device will need the new code too.')) return;
+    $('wifiCode').value = newPairingCode();
+    saveWifi();
+    renderConnection();
+    toast('New pairing code made. Type it into the device setup page.');
+  };
+  $('wifiSave').onclick = () => { if (saveWifi()) { renderConnection(); toast('Wi-Fi setup saved.'); } };
+  $('wifiTest').onclick = testWifi;
 }

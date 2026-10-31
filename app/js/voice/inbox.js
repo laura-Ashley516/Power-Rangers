@@ -25,7 +25,7 @@ export async function renderVoiceView() {
   const toSort = notes.filter((n) => ['to-sort', 'partly', 'error'].includes(n.status));
   $('toSortList').innerHTML = toSort.length ? toSort.map((n) => `
     <article class="note-card">
-      <div class="note-head"><strong>${n.source === 'device' ? '⌁ Device' : '🎙 iPad'} · ${when(n.recordedAt)}</strong><span class="badge">${STATUS_TEXT[n.status]}</span></div>
+      <div class="note-head"><strong>${n.source === 'device' ? 'From the device' : 'Recorded on the iPad'} · ${when(n.recordedAt)}</strong><span class="badge">${STATUS_TEXT[n.status]}</span></div>
       <audio controls preload="none" src="${audioUrl(n)}"></audio>
       ${n.error ? `<p class="muted">${esc(n.error)}</p>` : ''}
       ${renderResults((n.results || []).filter((r) => !r.ok))}
@@ -35,7 +35,7 @@ export async function renderVoiceView() {
 
   $('notesList').innerHTML = notes.length ? notes.map((n) => `
     <article class="note-row">
-      <div><strong>${n.source === 'device' ? '⌁ Device' : '🎙 iPad'} · ${when(n.recordedAt)}</strong> <span class="badge">${STATUS_TEXT[n.status] || n.status}</span>
+      <div><strong>${n.source === 'device' ? 'From the device' : 'Recorded on the iPad'} · ${when(n.recordedAt)}</strong> <span class="badge">${STATUS_TEXT[n.status] || n.status}</span>
       <p class="muted">${n.transcript ? '“' + esc(n.transcript) + '”' : 'No words yet.'}</p></div>
       <div class="row"><audio controls preload="none" src="${audioUrl(n)}"></audio>${n.status === 'new' || n.status === 'error' ? `<button class="small" data-reprocess="${n.id}">Process</button>` : ''}<button class="small danger" data-delete-note="${n.id}">Delete</button></div>
     </article>`).join('') : '<p class="empty-state">No voice notes yet. Use “Voice note” at the top, or record on the reminder device.</p>';
@@ -61,7 +61,7 @@ export async function updateCount() {
 export function renderBanner() {
   let count = 0;
   DAYS.forEach((d) => PERIODS.forEach((p) => ctx.state.schedule[d][p].forEach((a) => a.voiceNew && count++)));
-  $('voiceBanner').innerHTML = count ? `<div class="voice-banner"><span aria-hidden="true">🎙</span><p><strong>From your voice notes:</strong> ${count} ${count === 1 ? 'activity was' : 'activities were'} added or moved. They are marked “new”.</p><button data-view-voice>See changes</button><button data-clear-new>Got it</button></div>` : '';
+  $('voiceBanner').innerHTML = count ? `<div class="voice-banner"><p><strong>From your voice notes:</strong> ${count} ${count === 1 ? 'activity was' : 'activities were'} added or moved. They are marked “new”.</p><button data-view-voice>See changes</button><button data-clear-new>Got it</button></div>` : '';
 }
 
 export function clearNewMarks() {

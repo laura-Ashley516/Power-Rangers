@@ -142,7 +142,7 @@ function noSoundHelp() {
 
 export function openVoiceModal() {
   const modal = showPanelModal('Voice note', `
-    <p>Say what to change, for example <em>“Add groceries on Tuesday afternoon”</em>, <em>“Move my walk to Friday”</em> or <em>“Cancel laundry”</em>.</p>
+    <p>Say what to change, for example <em>“Add a doctor appointment on Thursday afternoon”</em>, <em>“Move the vacuuming to Friday”</em> or <em>“Cancel hang laundry”</em>.</p>
     <div class="record-area">
       <button type="button" id="recBtn" class="record-button" aria-pressed="false"><span class="rec-dot" aria-hidden="true"></span><span id="recLabel">Start recording</span></button>
       <div class="level-meter" aria-hidden="true"><div id="recLevel" class="level-fill"></div></div>

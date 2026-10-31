@@ -2,6 +2,9 @@
 
 ## 1. On a laptop (quickest)
 
+`python3 tools/dev-server.py` serves `app/` on http://localhost:8000 with caching off (every reload runs the latest code). Add `?nosw` to the address to switch the offline cache off while developing.
+
+
 ```bash
 cd app
 python3 -m http.server 8000
@@ -48,17 +51,38 @@ tools/publish-test-site.sh <public-repo-url>
 
 It copies `app/`, refuses to publish if a word from your local `.private-names` file appears (that file is never committed), then pushes. Bump `APP_VERSION` in `app/js/config.js` and `CACHE` in `app/sw.js` when you publish a new version, so devices pick up the update.
 
-## 6. The device
+## 6. Wi-Fi sync without hardware
+
+Needs Node 18+. Everything runs on your computer (private, no internet needed).
+
+```
+cd tools
+npm install
+node wifi-test.mjs            # automatic end-to-end test (12 checks)
+```
+
+To try it in the planner by hand:
+1. `node local-broker.mjs` (keep it running).
+2. Open the planner at `http://localhost:8000` → **Reminder device** → *How the planner reaches the device*: **Wi-Fi** → **New code**, relay address `ws://localhost:18884` → **Save**.
+3. In a second terminal: `PWR_BROKER=mqtt://localhost:18883 node wifi-fake-device.mjs <the pairing code> --note ../app/tests/audio/add-groceries.wav`
+4. **Sync now**: the week goes to the pretend device and its voice note comes back into the calendar. Stop the pretend device (Ctrl+C) and **Connect** again: the planner says the device is offline.
+
+On the published site (https) the relay address must be `wss://…` (a real broker, see [wifi-plan.md](wifi-plan.md)).
+
+## 7. The device
 
 See [firmware/README.md](../firmware/README.md) and [hardware/wiring/pins.md](../hardware/wiring/pins.md). The firmware has **not been compiled yet**.
 
-## What has been verified so far (Oct 17)
+## What has been verified so far
 - Laptop Chrome: planner, drag & drop, typed voice commands, banner / "new" marks / undo, offline cache of all app files.
 - Whisper (tiny) in the browser: the 4 sample notes in `tests/audio/` were transcribed word for word, 1–5 s each.
 - Full chain with sample notes: 3 notes added to the calendar, "Remember to call my sister" kept aside to sort.
 - Protocol: `node tests/run.js` (hello, clock, safe sync, backup, note transfer + checksum, delete).
+- v0.6 (Oct 31): `node app/tests/run.js` 96/96 (client week within her rules, ≤ 3 a day, later-this-week, lighter week never moves fixed routines, split over days, 13/13 voice sentences about her own activities). In the planner (iPad landscape 1180×820 and portrait 820×1180 sizes): the whole week fits on screen; mouse drag, touch press-and-drag, tap-then-tap, Undo, card menu, tray, lighter week, split, Today done/steps/check-in, dim theme.
+- Wi-Fi (Oct 25): `tools/wifi-test.mjs` passes 12/12 on a local broker; in the planner (laptop Chrome), Wi-Fi sync sent the week, collected a voice note and added it to the calendar; a switched-off device shows as offline.
 
 ## Not verified yet
 - Anything on an iPad, in Bluefy, or with the real ESP32.
+- Wi-Fi with a real online broker (the test computer could not reach public brokers) and with the ESP32 firmware (not written yet).
 - The firmware build.
 - Printing layout on paper.

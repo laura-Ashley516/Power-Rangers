@@ -119,3 +119,6 @@ app.*.symbols
 !/dev/ci/**/Gemfile.lock
 # Local privacy list for tools/publish-test-site.sh (never commit)
 .private-names
+
+# Node packages for tools/ (npm install)
+node_modules/

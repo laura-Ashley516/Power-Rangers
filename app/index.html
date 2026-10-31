@@ -4,47 +4,69 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>My Week, My Way</title>
-<meta name="theme-color" content="#244d38">
+<meta name="theme-color" content="#4a5530">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-title" content="My Week">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icons/icon-192.png">
 <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<link rel="stylesheet" href="css/fonts.css">
 <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
 <div class="app">
 <header class="topbar">
-  <div class="brand"><div class="brand-mark" aria-hidden="true">✓</div><div><h1>My Week, My Way</h1><p>A calm, accessible planner · saved on this device</p></div></div>
-  <div class="top-actions"><span id="offlineBadge" class="badge good">● Saved locally</span><button id="voiceBtn" type="button">🎙 Voice note</button><button id="printBtn" type="button">Print schedule</button></div>
+  <div class="brand"><div class="brand-mark" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div><div><h1>My Week, My Way</h1></div></div>
+  <div class="top-date" aria-hidden="true"><strong id="topDate"></strong><span id="topPeriod"></span></div>
+  <div class="top-actions"><span id="offlineBadge">Saved on this iPad</span><button id="undoBtn" type="button">Undo</button><button id="voiceBtn" type="button">Voice note</button><button id="printBtn" type="button">Print</button></div>
 </header>
 <div class="layout">
 <nav class="sidebar" aria-label="Main navigation">
-  <button class="navbtn active" data-view="weekly"><span class="navicon">▦</span> Weekly view</button>
-  <button class="navbtn" data-view="daily"><span class="navicon">☀</span> Daily view</button>
-  <button class="navbtn" data-view="activities"><span class="navicon">＋</span> Activities</button>
-  <button class="navbtn" data-view="voice"><span class="navicon">🎙</span> Voice notes <span id="voiceCount" class="nav-count hidden"></span></button>
-  <button class="navbtn" data-view="device"><span class="navicon">⌁</span> Reminder device</button>
-  <button class="navbtn" data-view="settings"><span class="navicon">⚙</span> Accessibility & settings</button>
-  <div class="side-note">Tip: drag activities to reschedule them.</div>
-</nav>
+  <button class="navbtn active" data-view="weekly">Week</button>
+  <button class="navbtn" data-view="today">Today</button>
+  <button class="navbtn" data-view="daily">One day</button>
+  <button class="navbtn" data-view="activities">My activities</button>
+  <button class="navbtn" data-view="voice">Voice notes <span id="voiceCount" class="nav-count hidden"></span></button>
+  <button class="navbtn" data-view="device">Reminder device</button>
+  <button class="navbtn" data-view="settings">Settings</button>
+  <button class="navbtn" data-view="guide">Help</button>
+  </nav>
 <main class="main-panel">
-<section id="weeklyView" class="view">
-  <div class="viewhead"><div><h2>Weekly schedule</h2><p>Plan your week, one manageable activity at a time.</p></div><div class="row"><button class="primary" id="weeklyAddActivity">＋ Add activity</button><button id="repeatWeekBtn">Use last week</button></div></div>
-  <div class="calendar-toolbar" aria-label="Calendar week navigation"><div class="calendar-nav"><button id="prevWeekBtn" aria-label="Previous week">← Previous</button><button id="todayWeekBtn">This week</button><button id="nextWeekBtn" aria-label="Next week">Next →</button></div><strong id="weekRangeLabel" aria-live="polite">This week</strong></div>
+<section id="todayView" class="view hidden" aria-labelledby="todayTitle">
+  <div class="hello"><div><h2 id="todayTitle">Today</h2><p id="todaySub"></p></div><div class="budget-big" id="todayBudget"></div></div>
+  <div class="today-grid"><div id="todayMain"></div><div id="todaySide"></div></div>
+</section>
+<section id="weeklyView" class="view" aria-labelledby="weekTitle">
+  <div class="calendar-toolbar" aria-label="Week navigation and actions">
+    <div class="calendar-nav"><h2 id="weekTitle" class="sr-only">My week</h2><button id="prevWeekBtn" aria-label="Previous week">←</button><button id="todayWeekBtn">This week</button><button id="nextWeekBtn" aria-label="Next week">→</button><span id="weekRangeLabel" aria-live="polite">This week</span></div>
+    <div class="week-actions"><button id="weeklyAddActivity">New activity</button><button id="weekMoreBtn">More</button></div>
+  </div>
   <div id="voiceBanner" role="status" aria-live="polite"></div>
   <div id="overloadAlerts"></div>
-  <div class="week-toolbar"><div class="row energy-legend" aria-label="Energy levels"><span class="badge energy-easy">□ Easy</span><span class="badge energy-moderate">○ Moderate</span><span class="badge energy-high">◇ High</span></div><div class="row"><label for="dailySelect">Open day:</label><select id="dailySelect" aria-label="Choose day to view"><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option></select></div></div>
-  <div id="weekGrid" class="week-grid" aria-label="Weekly schedule board"></div>
-  <div class="footer-note">Drag an activity to another time block to reschedule it. Fixed routines cannot be moved or removed.</div>
+  <div id="placeHint" class="place-hint hidden" role="status"></div>
+  <div class="week-wrap-calm">
+    <!-- "My activities" box: ALWAYS visible. Dragging from it into the calendar is a core client requirement (decision 27). -->
+    <aside class="palette" id="palette" aria-labelledby="paletteTitle">
+      <div class="palette-strip"><div class="palette-head"><h3 id="paletteTitle">My activities</h3><p>Drag into the calendar</p></div><button type="button" class="palette-scroll" data-scroll="-1" aria-label="Show earlier activities">‹</button><div id="paletteTiles" class="palette-groups"></div><button type="button" class="palette-scroll" data-scroll="1" aria-label="Show more activities">›</button></div>
+    </aside>
+    <div class="week-main">
+      <div id="weekGrid" class="week-grid" aria-label="Weekly schedule board"></div>
+      <div class="energy-key" aria-label="Energy key"><span>□ Easy</span><span>● Moderate</span><span>◇ High</span><span>◠ Rest</span></div>
+      <section class="tray" aria-labelledby="trayTitle">
+        <div class="row" style="justify-content:space-between"><div><h3 id="trayTitle">Later this week</h3><p class="muted" style="font-size:.85em">For when there is energy. Drag one onto a day when ready.</p></div><button class="small" id="trayAdd">Add for later</button></div>
+        <div id="leftoverTray" class="slot tray-slot" data-tray="1" aria-label="Later this week drop zone"></div>
+      </section>
+    </div>
+  </div>
+  <div class="row" style="margin-top:var(--gap-group)"><label for="dailySelect" class="muted">Open one day</label><select id="dailySelect" aria-label="Choose day to view"><option>Sunday</option><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option></select></div>
 </section>
 <section id="dailyView" class="view hidden">
-  <div class="viewhead"><div><h2 id="dailyTitle">Monday</h2><p id="dailyDateLabel">Date for this day</p><p>One day at a time, with clear and roomy time blocks.</p></div><div class="row"><select id="dailySelect2" aria-label="Choose day"><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option><option>Sunday</option></select><button id="dailyPrint">Print this day</button></div></div>
+  <div class="viewhead"><div><h2 id="dailyTitle">Monday</h2><p id="dailyDateLabel">Date for this day</p></div><div class="row"><select id="dailySelect2" aria-label="Choose day"><option>Sunday</option><option>Monday</option><option>Tuesday</option><option>Wednesday</option><option>Thursday</option><option>Friday</option><option>Saturday</option></select><button id="dailyPrint">Print this day</button></div></div>
+  <div id="dailyBudget" style="margin-bottom:12px"></div>
   <div id="dailySlots" class="day-list"></div>
 </section>
 <section id="activitiesView" class="view hidden">
-  <div class="viewhead"><div><h2>Activity library</h2><p>Create reusable activities and add them to any day.</p></div><button class="primary" id="openAddActivity">＋ New activity</button></div>
-  <div class="panel"><h3>How to schedule</h3><p class="muted">Use the single <b>Add activity</b> button in Weekly view, or drag a scheduled activity into another time block. Voice notes recognise the names in this library.</p></div>
+  <div class="viewhead"><div><h2>My activities</h2><p>The activities you do often. Use them again and again.</p></div><div class="row"><button class="primary" id="openAddActivity">New activity</button><button id="openSplit">Split a task over days</button></div></div>
   <div id="libraryList" class="library-list"></div>
 </section>
 <section id="voiceView" class="view hidden">
@@ -59,18 +81,52 @@
 <section id="deviceView" class="view hidden">
   <div class="viewhead"><div><h2>Reminder device</h2><p>Send your schedule to the portable device and collect its voice notes.</p></div><span id="deviceBadge" class="badge">Not connected</span></div>
   <div class="two-col">
-    <div class="panel"><h3>Connection</h3><p class="muted" id="deviceHelp">On iPad, open this planner in the Bluefy browser to use Bluetooth. On a laptop, use Chrome or Edge.</p><div class="device-status"><span id="deviceDot" class="status-dot"></span><strong id="deviceStatus" role="status">Not connected</strong></div><div class="row" style="margin-top:14px"><button id="connectBtn" class="primary">Connect to device</button><button id="disconnectBtn">Disconnect</button></div><button id="syncBtn" class="primary" style="width:100%;margin-top:18px">Sync now</button><p id="syncStatus" class="notice" role="status">The schedule is saved locally. Connect the device, then Sync now: it sends your week, sets the device clock, and collects voice notes.</p></div>
+    <div class="panel"><h3>Connection</h3><div class="field" style="margin-bottom:10px"><label for="connectionSelect">How the planner reaches the device</label><select id="connectionSelect"><option value="wifi">Wi-Fi</option><option value="bluetooth">Bluetooth</option></select></div><p class="muted" id="deviceHelp">On iPad, open this planner in the Bluefy browser to use Bluetooth. On a laptop, use Chrome or Edge.</p><div class="device-status"><span id="deviceDot" class="status-dot"></span><strong id="deviceStatus" role="status">Not connected</strong></div><div class="row" style="margin-top:14px"><button id="connectBtn" class="primary">Connect to device</button><button id="disconnectBtn">Disconnect</button></div><button id="syncBtn" class="primary" style="width:100%;margin-top:18px">Sync now</button><p id="syncStatus" class="notice" role="status">The schedule is saved locally. Connect the device, then Sync now: it sends your week, sets the device clock, and collects voice notes.</p></div>
     <div class="panel"><h3>Reminder settings</h3><div class="field"><label for="reminderLead">Remind me before an activity</label><select id="reminderLead"><option value="15">15 minutes</option><option value="30">30 minutes</option><option value="60" selected>1 hour</option><option value="120">2 hours</option></select></div><div class="setting-row"><div><strong>Vibration reminder</strong><p>Test vibration on this device, if supported.</p></div><button id="vibrateBtn">Test vibration</button></div><div class="setting-row"><div><strong>SMS reminders</strong><p>Interface setting only; an SMS service is needed to send messages.</p></div><button id="smsToggle" class="switch" role="switch" aria-checked="false" aria-label="Enable SMS reminders"></button></div></div>
   </div>
+  <div class="panel hidden" id="wifiPanel"><h3>Wi-Fi setup</h3><p class="muted">Done once. The planner and the device meet through an online relay (an MQTT broker). Only this planner and the paired device use the pairing code.</p>
+    <div class="setting-row"><div><strong>Pairing code</strong><p>Type this code into the device's setup page (join the <b>PWR-Setup</b> Wi-Fi from this iPad).</p></div><div class="row"><strong id="wifiCodeShow" class="pair-code">—</strong><button id="wifiNewCode" class="small">New code</button></div></div>
+    <div class="row" style="margin-top:12px"><div class="field"><label for="wifiCode">Pairing code (already on a device? type it here)</label><input id="wifiCode" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="ABCD-EFGH-JKLM"></div></div>
+    <div class="row" style="margin-top:8px"><div class="field"><label for="wifiBroker">Relay (broker) address</label><input id="wifiBroker" type="url" autocomplete="off" spellcheck="false" placeholder="wss://example.com:8084/mqtt"></div></div>
+    <div class="row" style="margin-top:8px"><div class="field"><label for="wifiUser">Relay username</label><input id="wifiUser" autocomplete="off" spellcheck="false"></div><div class="field"><label for="wifiPass">Relay password</label><input id="wifiPass" type="password" autocomplete="off"></div></div>
+    <div class="row" style="margin-top:12px"><button id="wifiSave" class="primary">Save Wi-Fi setup</button><button id="wifiTest">Test the connection</button></div>
+    <p id="wifiStatus" class="notice" role="status">Not tested yet.</p></div>
   <div class="panel" id="demoDevicePanel"><h3>Demo device (for testing)</h3><p class="muted">A pretend reminder device inside the app, so the team can test syncing and voice notes without the hardware. Turn it on in Settings.</p><div id="demoDeviceBody"></div></div>
-  <div class="footer-note">Bluetooth messages follow docs/protocol.md (v1, with v0 fallback for the first-try firmware).</div>
+  <div class="footer-note">Bluetooth and Wi-Fi messages follow docs/protocol.md (v1; Bluetooth also accepts the first-try v0 firmware).</div>
 </section>
 <section id="settingsView" class="view hidden">
-  <div class="viewhead"><div><h2>Accessibility & settings</h2><p>Adjust the interface to make it easier to use.</p></div></div>
-  <div class="panel"><div class="field theme-field"><label for="themeSelect">Interface colour</label><select id="themeSelect"><option value="sage">Soft sage (default)</option><option value="lavender">Soft lavender</option><option value="ocean">Soft blue</option><option value="peach">Soft peach</option></select><p class="muted">Changes the page accent and background. Energy colours stay consistent so they remain meaningful.</p></div><div class="setting-row"><div><strong>High contrast</strong><p>Increase contrast between the background, text and borders.</p></div><button id="contrastToggle" class="switch" role="switch" aria-checked="false" aria-label="High contrast"></button></div><div class="setting-row"><div><strong>Larger text</strong><p>Increase text size throughout the interface.</p></div><button id="textToggle" class="switch" role="switch" aria-checked="false" aria-label="Larger text"></button></div><div class="setting-row"><div><strong>Show schedule load alerts</strong><p>Offer a neutral suggestion when a day has many demanding activities.</p></div><button id="alertsToggle" class="switch" role="switch" aria-checked="true" aria-label="Show schedule load alerts"></button></div><div class="setting-row"><div><strong>Reset demo data</strong><p>Restore the example activities and schedule on this device.</p></div><button id="resetBtn" class="danger">Reset planner</button></div></div>
-  <div class="panel"><h3>Voice understanding</h3><div class="field"><label for="modelSelect">Speech model (runs on this device)</label><select id="modelSelect"><option value="Xenova/whisper-tiny.en">Small and fast (about 40 MB)</option><option value="Xenova/whisper-base.en">More accurate, slower (about 80 MB)</option></select></div><div class="setting-row"><div><strong>Download the speech model now</strong><p id="modelStatus">Downloaded once, then works without internet.</p></div><button id="preloadModelBtn">Download</button></div></div>
-  <div class="panel"><h3>Keep my schedule safe</h3><div class="setting-row"><div><strong>Storage on this device</strong><p id="persistStatus">Checking…</p></div></div><div class="setting-row"><div><strong>Save a backup file</strong><p>Saves your activities, week and settings to a file (Files app or iCloud Drive).</p></div><button id="exportBtn">Save backup</button></div><div class="setting-row"><div><strong>Load a backup file</strong><p>Replaces the planner with a backup you saved earlier.</p></div><label class="file-button"><input id="importInput" type="file" accept="application/json,.json"><span>Load backup</span></label></div><div class="setting-row"><div><strong>Demo device</strong><p>Use a pretend reminder device for testing (no hardware needed).</p></div><button id="demoToggle" class="switch" role="switch" aria-checked="false" aria-label="Use demo device"></button></div></div>
-  <div class="panel"><h3>Energy tag key</h3><p><span class="dot green"></span> <b>Easy</b> — lower energy · square</p><p><span class="dot yellow"></span> <b>Moderate</b> — some energy · circle</p><p><span class="dot red"></span> <b>High</b> — more energy · diamond</p><p class="muted">These tags are planning aids, not a judgement about the person or activity.</p><p class="muted" id="appVersion"></p><div class="row"><button id="checkUpdateBtn" class="small">Check for updates</button><span id="updateStatus" class="muted"></span></div></div>
+  <div class="viewhead"><div><h2>Settings</h2><p>Make the planner comfortable to look at and use.</p></div></div>
+  <div class="two-col">
+  <div class="panel"><h3>Look</h3>
+    <div class="field"><label for="themeSelect">Colours</label><select id="themeSelect"><option value="sage">Warm light (default)</option><option value="dim">Dark</option><option value="lavender">Soft lavender</option><option value="ocean">Soft blue</option><option value="peach">Soft peach</option></select><span class="hint">Lowering the iPad's brightness helps light sensitivity more than any colour.</span></div>
+    <fieldset class="field text-settings" style="border:0;padding:0;margin:16px 0 0">
+      <legend>Text size</legend>
+      <div class="size-options" role="radiogroup" aria-label="Text size">
+        <label><input type="radio" name="textSize" value="small"><span style="font-size:15px">Small</span></label>
+        <label><input type="radio" name="textSize" value="standard"><span style="font-size:17px">Standard</span></label>
+        <label><input type="radio" name="textSize" value="large"><span style="font-size:19px">Large</span></label>
+        <label><input type="radio" name="textSize" value="xlarge"><span style="font-size:22px">Extra large</span></label>
+      </div>
+    </fieldset>
+    <div class="field" style="margin-top:16px"><label for="fontSelect">Text font</label><select id="fontSelect"><option value="system">Clear modern (the iPad's own font, default)</option><option value="atkinson">Extra clear letters (Atkinson Hyperlegible Next)</option><option value="serif">Book style (Georgia)</option></select></div>
+    <div class="text-preview" aria-hidden="true"><span class="preview-label">Preview</span><div class="activity-card yellow"><div class="activity-text"><div class="activity-name"><span class="activity-shape">●</span> Physiotherapy</div><div class="activity-meta">Friday morning · 120 min</div></div></div><p>Try each size and font for a minute and keep the one that is easiest to read.</p></div>
+    <div class="field" style="margin-top:16px"><label for="spacingSelect">Space between things</label><select id="spacingSelect"><option value="comfortable">Comfortable (default)</option><option value="spacious">More space</option></select></div>
+    <div class="setting-row"><div><strong>High contrast</strong><p>Stronger difference between text, background and borders.</p></div><button id="contrastToggle" class="switch" role="switch" aria-checked="false" aria-label="High contrast"></button></div>
+    <div class="field" style="margin-top:8px"><label for="weekStartSelect">The week starts on</label><select id="weekStartSelect"><option value="Sunday">Sunday (like a kitchen calendar)</option><option value="Monday">Monday</option></select></div>
+  </div>
+  <div class="panel"><h3>Planning help</h3>
+    <div class="setting-row"><div><strong>Energy messages</strong><p>A short, neutral note when a day has more than your rules allow.</p></div><button id="alertsToggle" class="switch" role="switch" aria-checked="true" aria-label="Show energy messages"></button></div>
+    <div class="setting-row"><div><strong>Start again with the example week</strong><p>Replaces the week with the example built from your usual activities.</p></div><button id="resetBtn" class="danger">Reset planner</button></div>
+  </div>
+  </div>
+  <div class="panel"><h3>Quiet times</h3><p class="muted" style="margin-bottom:8px">During these activities the reminder device does not vibrate or beep. Reminders wait until after.</p><div id="quietList" class="quiet-list"></div></div>
+  <div class="panel"><h3>Voice understanding</h3><div class="field"><label for="modelSelect">Speech model (runs on this iPad, nothing is sent online)</label><select id="modelSelect"><option value="Xenova/whisper-tiny.en">Small and fast (about 40 MB)</option><option value="Xenova/whisper-base.en">More accurate, slower (about 80 MB)</option></select></div><div class="setting-row"><div><strong>Download the speech model now</strong><p id="modelStatus">Downloaded once, then works without internet.</p></div><button id="preloadModelBtn">Download</button></div></div>
+  <div class="panel"><h3>Keep my schedule safe</h3><div class="setting-row"><div><strong>Storage on this iPad</strong><p id="persistStatus">Checking…</p></div></div><div class="setting-row"><div><strong>Save a backup file</strong><p>Saves your activities, week and settings to a file (Files app or iCloud Drive).</p></div><button id="exportBtn">Save backup</button></div><div class="setting-row"><div><strong>Load a backup file</strong><p>Replaces the planner with a backup you saved earlier.</p></div><label class="file-button"><input id="importInput" type="file" accept="application/json,.json"><span>Load backup</span></label></div><div class="setting-row"><div><strong>Demo device</strong><p>A pretend reminder device, for testing without the hardware.</p></div><button id="demoToggle" class="switch" role="switch" aria-checked="false" aria-label="Use demo device"></button></div></div>
+  <div class="panel"><h3>About</h3><p class="muted" id="appVersion"></p><div class="row" style="margin-top:8px"><button id="checkUpdateBtn" class="small">Check for updates</button><span id="updateStatus" class="muted"></span></div></div>
+</section>
+<section id="guideView" class="view hidden">
+  <div class="viewhead"><div><h2>How to use the planner</h2><p>One page. Print it and keep it next to the iPad.</p></div><button id="printGuideBtn">Print this guide</button></div>
+  <div class="panel"><ol class="guide-steps" id="guideSteps"></ol></div>
 </section>
 </main>
 </div>

@@ -1,0 +1,18 @@
+{
+  "name": "pwr-tools",
+  "private": true,
+  "type": "module",
+  "description": "Helper scripts: Wi-Fi demo device (MQTT) and its end-to-end test",
+  "scripts": {
+    "fake-device": "node wifi-fake-device.mjs",
+    "test-wifi": "node wifi-test.mjs",
+    "local-broker": "node local-broker.mjs"
+  },
+  "dependencies": {
+    "mqtt": "5.15.2"
+  },
+  "devDependencies": {
+    "aedes": "1.2.0",
+    "aedes-server-factory": "0.2.1"
+  }
+}

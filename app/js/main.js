@@ -1,19 +1,22 @@
 // Starts the planner: loads the saved week, draws every screen, wires the buttons,
-// drag & drop (mouse and touch), and the offline-first service worker.
+// drag & drop (mouse, touch and tap-to-place), and the offline-first service worker.
 //
 // Track: shared (keep this file small; put features in their own module)
 
-import { APP_VERSION, DAYS } from './config.js';
-import { ctx, commit, change, onRender } from './context.js';
+import { APP_VERSION, PERIODS } from './config.js';
+import { ctx, commit, change, undo, onRender } from './context.js';
 import { load, fresh, requestPersistence, exportBackup, importBackup } from './store.js';
-import { $, toast } from './ui-kit.js';
-import { renderWeek, renderAlerts, changeWeek, suggestMove, repeatLastWeek } from './ui-week.js';
+import { $, toast, currentPeriodIndex, orderedDays } from './ui-kit.js';
+import { renderWeek, renderAlerts, changeWeek, openBalance, openSplit, openAddLeftover, startPlacing, cancelPlacing, placeInto, openWeekMenu } from './ui-week.js';
 import { renderDaily } from './ui-daily.js';
-import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, handleLibraryClick } from './ui-library.js';
-import { printWeek, printDay, renderPrintArea } from './print.js';
-import { connect, disconnect, sync, renderDemoPanel } from './ui-device.js';
+import { renderToday, addRest } from './ui-today.js';
+import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, openCardMenu, handleLibraryClick, renderQuietSettings, toggleQuiet } from './ui-library.js';
+import { printWeek, printDay, printGuide, renderPrintArea } from './print.js';
+import { renderGuide } from './guide.js';
+import { openAppointmentCard } from './ui-appointment.js';
+import { connect, disconnect, sync, renderDemoPanel, renderConnection, wireConnection } from './ui-device.js';
 import { openVoiceModal } from './voice/recorder.js';
-import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCount, clearNewMarks } from './voice/inbox.js';
+import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCount } from './voice/inbox.js';
 import { preload, onStatus } from './voice/transcribe.js';
 import { onNotesChanged } from './voice/notes.js';
 
@@ -27,21 +30,43 @@ function applySettings() {
   $('themeSelect').value = s.theme || 'sage';
   document.body.dataset.theme = s.theme || 'sage';
   $('contrastToggle').setAttribute('aria-checked', s.contrast);
-  $('textToggle').setAttribute('aria-checked', s.large);
   $('alertsToggle').setAttribute('aria-checked', s.alerts);
   $('smsToggle').setAttribute('aria-checked', s.sms);
   $('demoToggle').setAttribute('aria-checked', !!s.demoDevice);
   $('reminderLead').value = s.lead;
   $('modelSelect').value = s.speechModel;
+  $('weekStartSelect').value = s.weekStart || 'Sunday';
+  $('fontSelect').value = s.font || 'system';
+  $('spacingSelect').value = s.spacing || 'comfortable';
+  document.body.classList.toggle('font-atkinson', s.font === 'atkinson');
+  document.body.classList.toggle('font-serif', s.font === 'serif');
+  document.documentElement.dataset.size = s.size || 'standard';
+  document.querySelectorAll('input[name=textSize]').forEach((r) => (r.checked = r.value === (s.size || 'standard')));
+  document.body.classList.toggle('spacious', s.spacing === 'spacious');
   document.body.classList.toggle('high-contrast', s.contrast);
-  document.body.classList.toggle('large-text', s.large);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', s.theme === 'dim' ? '#1c1d18' : '#4a5530');
+  // Day pickers follow the client's week order.
+  const order = orderedDays(s.weekStart);
+  ['dailySelect', 'dailySelect2'].forEach((id) => {
+    const sel = $(id);
+    if ([...sel.options].map((o) => o.value).join() !== order.join()) { const v = sel.value; sel.innerHTML = order.map((d) => `<option>${d}</option>`).join(''); sel.value = v; }
+  });
 }
 
+function updateClock() {
+  const now = new Date();
+  $('topDate').textContent = now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  const pi = currentPeriodIndex(now);
+  $('topPeriod').textContent = pi >= 0 && pi <= 2 ? PERIODS[pi] : '';
+}
+
+onRender(applySettings);
+onRender(renderToday);
 onRender(renderWeek);
 onRender(renderDaily);
 onRender(renderLibrary);
+onRender(renderQuietSettings);
 onRender(renderBanner);
-onRender(applySettings);
 onRender(renderPrintArea);
 onRender(() => { if (!$('voiceView').classList.contains('hidden')) renderVoiceView(); });
 
@@ -49,10 +74,13 @@ export function showView(name) {
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   $(name + 'View').classList.remove('hidden');
   document.querySelectorAll('.navbtn').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+  if (name !== 'weekly' && ctx.placing) cancelPlacing();
+  if (name === 'today') renderToday();
   if (name === 'daily') renderDaily();
   if (name === 'weekly') renderWeek();
   if (name === 'voice') renderVoiceView();
-  if (name === 'device') renderDemoPanel();
+  if (name === 'device') { renderDemoPanel(); renderConnection(); }
+  window.scrollTo({ top: 0 });
 }
 
 const setting = (key, value) => commit({ ...ctx.state, settings: { ...ctx.state.settings, [key]: value } });
@@ -63,41 +91,60 @@ document.querySelectorAll('.navbtn').forEach((b) => b.addEventListener('click', 
 $('prevWeekBtn').onclick = () => changeWeek(ctx.weekOffset - 1);
 $('nextWeekBtn').onclick = () => changeWeek(ctx.weekOffset + 1);
 $('todayWeekBtn').onclick = () => changeWeek(0);
+$('undoBtn').onclick = undo;
 $('voiceBtn').onclick = openVoiceModal;
 $('voiceRecordBtn2').onclick = openVoiceModal;
 $('processNotesBtn').onclick = () => processAll().then(renderVoiceView);
 $('dailySelect').addEventListener('change', (e) => { $('dailySelect2').value = e.target.value; showView('daily'); });
 $('dailySelect2').addEventListener('change', () => { renderDaily(); renderPrintArea(); });
 $('printBtn').addEventListener('click', printWeek);
-$('dailyPrint').addEventListener('click', printDay);
+$('dailyPrint').addEventListener('click', () => printDay());
+$('printGuideBtn').addEventListener('click', printGuide);
 $('openAddActivity').onclick = () => activityForm();
-$('weeklyAddActivity').onclick = () => createAndScheduleActivity($('dailySelect').value || 'Monday', 'Morning');
-$('repeatWeekBtn').onclick = repeatLastWeek;
+$('weeklyAddActivity').onclick = () => createAndScheduleActivity();
+$('openSplit').onclick = openSplit;
+$('trayAdd').onclick = openAddLeftover;
+$('weekMoreBtn').onclick = openWeekMenu;
+$('fontSelect').onchange = (e) => { setting('font', e.target.value); toast('Font saved.'); };
+$('spacingSelect').onchange = (e) => { setting('spacing', e.target.value); toast('Spacing saved.'); };
 
-$('themeSelect').onchange = (e) => { setting('theme', e.target.value); toast('Colour preference saved.'); };
+$('themeSelect').onchange = (e) => { setting('theme', e.target.value); toast('Colours saved.'); };
+$('weekStartSelect').onchange = (e) => { setting('weekStart', e.target.value); toast(`The week now starts on ${e.target.value}.`); };
 $('contrastToggle').onclick = () => setting('contrast', !ctx.state.settings.contrast);
-$('textToggle').onclick = () => setting('large', !ctx.state.settings.large);
+document.addEventListener('change', (e) => { const q = e.target.closest?.('[data-quiet]'); if (q) toggleQuiet(q.dataset.quiet, q.checked); });
+document.querySelectorAll('input[name=textSize]').forEach((r) => (r.onchange = () => { setting('size', r.value); }));
 $('alertsToggle').onclick = () => setting('alerts', !ctx.state.settings.alerts);
-$('smsToggle').onclick = () => { setting('sms', !ctx.state.settings.sms); toast(ctx.state.settings.sms ? 'SMS preference enabled in this interface.' : 'SMS preference disabled.'); };
-$('demoToggle').onclick = () => { disconnect(); setting('demoDevice', !ctx.state.settings.demoDevice); renderDemoPanel(); toast(ctx.state.settings.demoDevice ? 'Demo device on.' : 'Demo device off.'); };
-$('reminderLead').onchange = (e) => { setting('lead', Number(e.target.value)); toast('Reminder preference saved.'); };
+$('smsToggle').onclick = () => { setting('sms', !ctx.state.settings.sms); toast(ctx.state.settings.sms ? 'SMS preference on (an SMS service is still needed).' : 'SMS preference off.'); };
+$('demoToggle').onclick = () => { disconnect(); setting('demoDevice', !ctx.state.settings.demoDevice); renderDemoPanel(); renderConnection(); toast(ctx.state.settings.demoDevice ? 'Demo device on.' : 'Demo device off.'); };
+$('reminderLead').onchange = (e) => { setting('lead', Number(e.target.value)); toast('Reminder time saved.'); };
 $('modelSelect').onchange = (e) => { setting('speechModel', e.target.value); toast('Speech model saved. It downloads the next time it is needed.'); };
 $('preloadModelBtn').onclick = () => preload(ctx.state.settings.speechModel);
-$('vibrateBtn').onclick = () => { if ('vibrate' in navigator) { navigator.vibrate(180); toast('Vibration test requested.'); } else toast('Vibration is not supported by this browser/device.'); };
-$('resetBtn').onclick = () => { if (confirm('Reset the planner to the original example schedule?')) { sessionStorage.clear(); ctx.selectedActivity = null; commit(fresh()); toast('Planner reset.'); } };
+$('vibrateBtn').onclick = () => { if ('vibrate' in navigator) { navigator.vibrate(180); toast('Vibration test requested.'); } else toast('Vibration is not supported by this browser.'); };
+$('resetBtn').onclick = () => {
+  if (!confirm('Start again with the example week? Your current week and activities are replaced. (Save a backup first if unsure.)')) return;
+  sessionStorage.clear();
+  const keep = ctx.state.settings;
+  ctx.weekOffset = 0; ctx.undoStack = []; ctx.placing = null;
+  const state = fresh();
+  state.settings = { ...state.settings, ...keep };
+  ctx.weekSchedules = { 0: JSON.parse(JSON.stringify(state.schedule)) };
+  commit(state);
+  toast('Planner reset to the example week.');
+};
 $('exportBtn').onclick = () => { exportBackup(ctx.state); toast('Backup file created.'); };
 $('importInput').onchange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
     const state = await importBackup(file);
-    if (confirm('Replace the planner with this backup?')) { commit(state); toast('Backup loaded.'); }
+    if (confirm('Replace the planner with this backup?')) { ctx.weekSchedules = { 0: JSON.parse(JSON.stringify(state.schedule)) }; ctx.weekOffset = 0; commit(state); toast('Backup loaded.'); }
   } catch (err) { toast(err.message); }
   e.target.value = '';
 };
 $('connectBtn').onclick = connect;
 $('disconnectBtn').onclick = disconnect;
 $('syncBtn').onclick = sync;
+wireConnection();
 
 onStatus((s) => {
   const el = $('modelStatus');
@@ -107,108 +154,150 @@ onStatus((s) => {
 });
 onNotesChanged(updateCount);
 
-// One click handler for the whole page (cards, alerts, library, voice page).
+// ---------- clicks (one handler for the whole page) ----------
+
+let lastDragEnd = 0; // a drag that ends where it started must not count as a tap
+
 document.addEventListener('click', (e) => {
-  const action = e.target.closest('[data-action]');
+  if (Date.now() - lastDragEnd < 400) return;
+  const t = e.target;
+  const action = t.closest('[data-action]');
   if (action) {
     e.stopPropagation();
     const card = action.closest('.activity-card');
     if (action.dataset.action === 'remove') change({ type: 'remove', id: card.dataset.id });
+    if (action.dataset.action === 'drop-leftover') change({ type: 'dropLeftover', id: card.dataset.id });
     return;
   }
-  const alertMove = e.target.closest('[data-alert-move]');
-  if (alertMove) { suggestMove(alertMove.dataset.alertMove); return; }
-  const dismiss = e.target.closest('[data-alert-dismiss]');
+  if (t.closest('[data-cancel-place]')) { cancelPlacing(); return; }
+  const scroll = t.closest('[data-scroll]');
+  if (scroll) { $('paletteTiles').scrollBy({ left: Number(scroll.dataset.scroll) * 320 }); return; }
+  const apBtn = t.closest('[data-appointment]');
+  if (apBtn) { openAppointmentCard(apBtn.dataset.appointment); return; }
+  const rest = t.closest('[data-add-rest]');
+  if (rest) { addRest(rest.dataset.addRest); return; }
+  const pt = t.closest('[data-print-tomorrow]');
+  if (pt) { printDay(pt.dataset.printTomorrow); return; }
+  const od = t.closest('[data-open-day]');
+  if (od) { $('dailySelect2').value = od.dataset.openDay; showView('daily'); return; }
+  if (t.closest('[data-open-balance]')) { openBalance(); return; }
+  const dismiss = t.closest('[data-alert-dismiss]');
   if (dismiss) { sessionStorage.setItem('dismiss-' + dismiss.dataset.alertDismiss, '1'); renderAlerts(); return; }
   if (handleLibraryClick(e)) return;
   if (handleVoiceClick(e, showView)) return;
-  const slot = e.target.closest('.slot');
-  if (slot && Date.now() - lastDragEnd > 400 && !e.target.closest('.activity-card') && e.target.closest('#weeklyView, #dailyView')) openQuickAdd(slot.dataset.day, slot.dataset.period);
+
+  const card = t.closest('.activity-card');
+  const slot = t.closest('.slot');
+  const inBoard = t.closest('#weeklyView, #dailyView');
+  // Tap-to-place: an activity is chosen, the next tap on a block puts it there.
+  if (ctx.placing && slot && slot.dataset.day) {
+    placeInto(ctx.placing.kind, ctx.placing.id, slot.dataset.day, slot.dataset.period);
+    ctx.placing = null;
+    renderWeek();
+    return;
+  }
+  if (card?.dataset.cardType === 'library' || card?.dataset.cardType === 'leftover') { startPlacing(card.dataset.cardType, card.dataset.id); return; }
+  if (card?.dataset.cardType === 'scheduled' && inBoard) { openCardMenu(card.dataset.id); return; }
+  if (slot && slot.dataset.day && inBoard && !card) openQuickAdd(slot.dataset.day, slot.dataset.period);
 });
 document.addEventListener('keydown', (e) => {
   const card = e.target.closest?.('.activity-card');
   if (card && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); card.click(); }
+  if (e.key === 'Escape' && ctx.placing) cancelPlacing();
+  if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.target.closest('input,textarea')) { e.preventDefault(); undo(); }
 });
 
-// ---------- drag & drop (moved from the first try) ----------
+// ---------- drag & drop ----------
+// Sources: a day's activity (moves it), one of "My activities" (adds a copy), a "Later" activity (places it).
+// Targets: a block of a day, or the "Later this week" tray.
+// One pointer-based drag for mouse, finger and pen, with a floating copy under the pointer:
+// mouse starts after a small move; finger / pen after a short press (~0.25 s) so scrolling still works.
 
-let nativeDrag = null;
-let pointerStart = null;
-let lastDragEnd = 0; // a drag that ends in the same slot must not open "add"
-const clearTargets = () => document.querySelectorAll('.slot.drop-target').forEach((x) => x.classList.remove('drop-target'));
-const move = (src, slot) => {
-  if (src.day !== slot.dataset.day || src.period !== slot.dataset.period) change({ type: 'move', id: src.id, toDay: slot.dataset.day, toPeriod: slot.dataset.period });
-};
+const clearTargets = () => document.querySelectorAll('.drop-target').forEach((x) => x.classList.remove('drop-target'));
+const targetAt = (x, y) => document.elementFromPoint(x, y)?.closest('.slot[data-day], [data-tray]');
 
-document.addEventListener('dragstart', (e) => {
-  const card = e.target.closest('.activity-card');
-  if (!card || card.dataset.cardType === 'library' || card.getAttribute('draggable') !== 'true') { e.preventDefault(); return; }
-  nativeDrag = { id: card.dataset.id, day: card.dataset.day, period: card.dataset.period };
-  pointerStart = null;
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', card.dataset.id);
+function dropOn(src, target) {
+  if (!target) return;
+  if (target.dataset.tray) {
+    if (src.type === 'scheduled') change({ type: 'park', id: src.id });
+    else if (src.type === 'library') {
+      const a = ctx.state.library.find((x) => x.id === src.id);
+      if (a) change({ type: 'addLeftover', item: { ...a, id: undefined, activityId: a.id, steps: [...(a.steps || [])] } });
+    }
+    return;
+  }
+  const { day, period } = target.dataset;
+  if (src.type === 'scheduled') { if (src.day !== day || src.period !== period) change({ type: 'move', id: src.id, toDay: day, toPeriod: period }); }
+  else placeInto(src.type, src.id, day, period);
+  ctx.placing = null;
+}
+
+const sourceOf = (card) => ({ type: card.dataset.cardType, id: card.dataset.id, day: card.dataset.day, period: card.dataset.period });
+const canDrag = (card) => card && card.getAttribute('draggable') === 'true' && ['scheduled', 'library', 'leftover'].includes(card.dataset.cardType);
+
+// The browser's own drag-and-drop is switched off: it behaves differently on iPad, Bluefy and desktop.
+document.addEventListener('dragstart', (e) => { if (e.target.closest?.('.activity-card')) e.preventDefault(); });
+
+let press = null;  // { x, y, card, timer, mouse }
+let drag = null;   // { src, card, ghost }
+function startDrag() {
+  const { card, x, y } = press;
+  const ghost = card.cloneNode(true);
+  ghost.classList.add('drag-ghost');
+  ghost.style.left = x + 'px';
+  ghost.style.top = y + 'px';
+  document.body.appendChild(ghost);
   card.classList.add('is-dragging');
-});
-document.addEventListener('dragover', (e) => {
-  const slot = e.target.closest('.slot');
-  if (!slot || !nativeDrag) return;
-  e.preventDefault();
-  e.dataTransfer.dropEffect = 'move';
-  clearTargets();
-  slot.classList.add('drop-target');
-});
-document.addEventListener('drop', (e) => {
-  const slot = e.target.closest('.slot');
-  if (!slot || !nativeDrag) return;
-  e.preventDefault();
-  const src = nativeDrag;
-  nativeDrag = null;
-  clearTargets();
-  move(src, slot);
-});
-document.addEventListener('dragend', () => { lastDragEnd = Date.now(); nativeDrag = null; clearTargets(); document.querySelectorAll('.is-dragging').forEach((x) => x.classList.remove('is-dragging')); });
-
-// Pointer drag for touch screens, where native drag-and-drop is unreliable.
+  document.body.classList.add('dragging');
+  drag = { src: sourceOf(card), card, ghost };
+  if (!press.mouse) navigator.vibrate?.(12);
+}
 document.addEventListener('pointerdown', (e) => {
+  if (e.button > 0) return;
   const card = e.target.closest('.activity-card');
-  if (!card || e.target.closest('button')) return;
-  pointerStart = { x: e.clientX, y: e.clientY, card, started: false, source: { type: card.dataset.cardType, id: card.dataset.id, day: card.dataset.day, period: card.dataset.period } };
+  if (!canDrag(card) || e.target.closest('button')) return;
+  const mouse = e.pointerType === 'mouse';
+  press = { x: e.clientX, y: e.clientY, card, mouse, timer: mouse ? null : setTimeout(startDrag, 250) };
 });
 document.addEventListener('pointermove', (e) => {
-  if (!pointerStart) return;
-  if (!pointerStart.started && Math.hypot(e.clientX - pointerStart.x, e.clientY - pointerStart.y) > 9) {
-    pointerStart.started = true;
-    document.body.style.cursor = 'grabbing';
-    pointerStart.card.classList.add('is-dragging');
+  if (press && !drag) {
+    const moved = Math.hypot(e.clientX - press.x, e.clientY - press.y);
+    if (press.mouse && moved > 6) { press.x = e.clientX; press.y = e.clientY; startDrag(); }
+    else if (!press.mouse && moved > 8) { clearTimeout(press.timer); press = null; return; } // a scroll, not a drag
   }
-  if (pointerStart.started) {
-    const el = document.elementFromPoint(e.clientX, e.clientY);
-    clearTargets();
-    el?.closest('.slot')?.classList.add('drop-target');
-  }
-});
-document.addEventListener('pointerup', (e) => {
-  if (!pointerStart) return;
-  const p = pointerStart;
-  pointerStart = null;
-  document.body.style.cursor = '';
+  if (!drag) return;
+  drag.ghost.style.left = e.clientX + 'px';
+  drag.ghost.style.top = e.clientY + 'px';
   clearTargets();
-  if (p.started) {
-    const slot = document.elementFromPoint(e.clientX, e.clientY)?.closest('.slot');
-    if (slot && p.source.type !== 'library') move(p.source, slot);
-    p.card.classList.remove('is-dragging');
-    lastDragEnd = Date.now();
-  }
+  targetAt(e.clientX, e.clientY)?.classList.add('drop-target');
 });
-document.addEventListener('pointercancel', () => { pointerStart = null; document.body.style.cursor = ''; document.querySelectorAll('.slot.drop-target,.is-dragging').forEach((el) => el.classList.remove('drop-target', 'is-dragging')); });
+// While dragging with a finger, the page must not scroll.
+document.addEventListener('touchmove', (e) => { if (drag) e.preventDefault(); }, { passive: false });
+function endDrag(e, cancelled) {
+  if (press) { clearTimeout(press.timer); press = null; }
+  if (!drag) return;
+  const d = drag;
+  drag = null;
+  d.ghost.remove();
+  d.card.classList.remove('is-dragging');
+  document.body.classList.remove('dragging');
+  clearTargets();
+  lastDragEnd = Date.now();
+  if (!cancelled) dropOn(d.src, targetAt(e.clientX, e.clientY));
+}
+document.addEventListener('pointerup', (e) => endDrag(e, false));
+document.addEventListener('pointercancel', (e) => endDrag(e, true));
 
-window.addEventListener('online', () => ($('offlineBadge').textContent = '● Online · saved locally'));
-window.addEventListener('offline', () => ($('offlineBadge').textContent = '● Offline · saved locally'));
+window.addEventListener('online', () => ($('offlineBadge').textContent = 'Saved on this iPad'));
+window.addEventListener('offline', () => ($('offlineBadge').textContent = 'Offline · saved on this iPad'));
 
 // ---------- start ----------
 
 $('appVersion').textContent = `Version ${APP_VERSION}`;
+renderGuide();
 commit(ctx.state);
+updateClock();
+setInterval(() => { updateClock(); if (!$('todayView').classList.contains('hidden')) renderToday(); }, 60000);
 updateCount();
 requestPersistence().then((r) => {
   $('persistStatus').textContent = r === 'granted' ? 'Kept permanently: the browser will not clear it on its own.'
@@ -253,4 +342,4 @@ if ('serviceWorker' in navigator) {
 }
 
 // Unused here but kept reachable for the console while testing.
-window.pwr = { ctx, DAYS, clearNewMarks };
+window.pwr = { ctx };
