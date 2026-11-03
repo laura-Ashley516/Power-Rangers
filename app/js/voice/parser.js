@@ -165,6 +165,14 @@ function pairPeriods(mentions) {
 
 // ---------- main ----------
 
+// "Move the appointment to Thursday morning because the clinic found me a spot": the reason is not
+// part of the command (its words would be read as part of the activity name), so it is dropped.
+const REASON = new Set(['because', 'cause', 'cuz', 'since']);
+function dropReason(tokens) {
+  const i = tokens.findIndex((t, k) => k > 0 && (REASON.has(t) || (t === 'so' && ['i', 'that', 'we', 'my'].includes(tokens[k + 1]))));
+  return i > 0 ? tokens.slice(0, i) : tokens;
+}
+
 function splitCommands(text) {
   const parts = [];
   for (const sentence of String(text || '').split(/[.!?;]+/)) {
@@ -180,7 +188,7 @@ function splitCommands(text) {
     }
     if (current.length) parts.push(current);
   }
-  return parts.filter((p) => p.length);
+  return parts.map(dropReason).filter((p) => p.length);
 }
 
 function leastBusyPeriod(schedule, day) {

@@ -7,14 +7,14 @@ import { DAYS, PERIODS } from './config.js';
 import { ctx, commit, change } from './context.js';
 import { uid, isAppointment } from './store.js';
 import { openAppointmentCard } from './ui-appointment.js';
-import { $, esc, shape, energyLabel, toast, showModal, closeModal, energyPicker, orderedDays, LOCK } from './ui-kit.js';
+import { $, esc, shape, energyLabel, toast, showModal, closeModal, energyPicker, orderedDays, WEEKLY } from './ui-kit.js';
 import { placeInto } from './ui-week.js';
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const days = () => orderedDays(ctx.state.settings.weekStart);
 
 export function renderLibrary() {
-  $('libraryList').innerHTML = ctx.state.library.map((a) => `<article class="library-item ${esc(a.energy)}"><span class="chip e-${esc(a.energy)}">${shape(a.energy)} ${energyLabel(a.energy)}</span><h4>${esc(a.name)} ${a.fixed ? `<span class="fixed-lock">${LOCK}</span>` : ''}</h4><p>${a.duration ? `${a.duration} min` : ''}${a.fixed ? ' · fixed routine' : ''}${a.steps?.length ? ` · ${a.steps.length} steps` : ''}${a.note ? `<br>${esc(a.note)}` : ''}</p><div class="row"><button class="small" data-add-to-schedule="${esc(a.id)}">Add to the week</button><button class="small" data-edit-library="${esc(a.id)}">Edit</button>${a.fixed ? '' : `<button class="small danger" data-delete-library="${esc(a.id)}">Delete</button>`}</div></article>`).join('') || '<p>No activities yet. Create one to get started.</p>';
+  $('libraryList').innerHTML = ctx.state.library.map((a) => `<article class="library-item ${esc(a.energy)}"><span class="chip e-${esc(a.energy)}">${shape(a.energy)} ${energyLabel(a.energy)}</span><h4>${esc(a.name)} ${a.fixed ? `<span class="fixed-lock">${WEEKLY}</span>` : ''}</h4><p>${a.duration ? `${a.duration} min` : ''}${a.fixed ? ' · every week' : ''}${a.steps?.length ? ` · ${a.steps.length} steps` : ''}${a.note ? `<br>${esc(a.note)}` : ''}</p><div class="row"><button class="small" data-add-to-schedule="${esc(a.id)}">Add to the week</button><button class="small" data-edit-library="${esc(a.id)}">Edit</button>${a.fixed ? '' : `<button class="small danger" data-delete-library="${esc(a.id)}">Delete</button>`}</div></article>`).join('') || '<p>No activities yet. Create one to get started.</p>';
 }
 
 export function scheduleFromLibrary(activityId, day, period) { placeInto('library', activityId, day, period); }
@@ -43,17 +43,19 @@ export function activityForm(existing = null) {
     <div class="field"><label for="fName">Name</label><input id="fName" name="name" required maxlength="60" value="${esc(a.name)}" placeholder="e.g. Medical appointment"></div>
     <div style="margin-top:12px">${energyPicker('energy', a.energy)}</div>
     ${detailFields(a)}
-    ${a.fixed && existing ? '<p class="notice">A fixed routine: it stays where it is in the week.</p>' : `<div class="setting-row"><label for="fFixed"><strong>Fixed routine</strong><p class="muted">Like an appointment: it stays where it is.</p></label><input id="fFixed" name="fixed" type="checkbox" ${a.fixed ? 'checked' : ''} style="width:24px;height:24px"></div>`}`, (fd) => {
+    <div class="setting-row"><label for="fFixed"><strong>Every week</strong><p class="muted">It comes back to the same place every week. You can still move it for one week.</p></label><input id="fFixed" name="fixed" type="checkbox" ${a.fixed ? 'checked' : ''} style="width:24px;height:24px"></div>`, (fd) => {
     const name = String(fd.get('name') || '').trim();
     if (!name) { toast('Please write a name.'); return false; }
-    const next = { ...(existing || {}), id: existing?.id || uid(), name, energy: fd.get('energy') || 'green', fixed: (existing?.fixed) || fd.has('fixed'), ...readDetails(fd) };
+    const next = { ...(existing || {}), id: existing?.id || uid(), name, energy: fd.get('energy') || 'green', fixed: fd.has('fixed'), ...readDetails(fd) };
     const state = clone(ctx.state);
     if (existing) {
       state.library = state.library.map((x) => (x.id === existing.id ? next : x));
       // Copies already in the week follow the change (their own part names stay).
       DAYS.forEach((d) => PERIODS.forEach((p) => state.schedule[d][p].forEach((s) => {
-        if (s.activityId === existing.id) { if (s.name === existing.name) s.name = next.name; Object.assign(s, { energy: next.energy, duration: next.duration, reminder: next.reminder, steps: next.steps, note: next.note, appointment: next.appointment, quiet: next.quiet }); }
+        if (s.activityId === existing.id) { if (s.name === existing.name) s.name = next.name; Object.assign(s, { fixed: next.fixed, energy: next.energy, duration: next.duration, reminder: next.reminder, steps: next.steps, note: next.note, appointment: next.appointment, quiet: next.quiet }); if (!next.fixed) delete s.home; }
       })));
+      // No longer every week: a copy cancelled this week does not come back.
+      if (!next.fixed) state.skipped = (state.skipped || []).filter((x) => x.item.activityId !== existing.id);
     } else state.library.push(next);
     commit(state);
     toast(existing ? 'Activity updated.' : 'Activity added to My activities. Drag it onto a day.');
@@ -89,20 +91,16 @@ export function openCardMenu(id) {
   const where = (() => { for (const d of DAYS) for (const p of PERIODS) { const a = ctx.state.schedule[d][p].find((x) => x.id === id); if (a) return { a, d, p }; } return null; })();
   if (!where) return;
   const { a, d, p } = where;
-  showModal(`${shape(a.energy)} ${esc(a.name)}`, `<p class="muted">${d} · ${p} · ${energyLabel(a.energy)}${a.fixed ? ' · fixed routine' : ''}</p>${a.steps?.length ? `<p style="margin-top:6px">Steps: ${a.steps.map(esc).join(' · ')}</p>` : ''}
+  showModal(`${shape(a.energy)} ${esc(a.name)}`, `<p class="muted">${d} · ${p} · ${energyLabel(a.energy)}${a.fixed ? ' · every week' : ''}</p>${a.steps?.length ? `<p style="margin-top:6px">Steps: ${a.steps.map(esc).join(' · ')}</p>` : ''}
     ${isAppointment(a, ctx.state.library) ? `<button type="button" class="primary" id="openApCard" style="margin:10px 0 4px">Appointment card: questions and what to bring</button>` : ''}
-    ${a.fixed ? '<p class="notice">Fixed routines stay where they are. To change one, edit it in My activities.</p><button type="button" class="danger" id="removeFixed" style="margin-top:8px">Remove from this day only</button>' : `${whenFields(d, p)}<button type="button" class="danger" id="removeCard" style="margin-top:16px">Remove from the week</button>`}`, (fd) => {
-    if (a.fixed) return;
+    ${a.fixed ? `<p class="notice">Every week${a.home ? `, usually on ${a.home.day} ${a.home.period.toLowerCase()}` : ''}. Changes here are for this week only.</p>` : ''}${whenFields(d, p)}<button type="button" class="danger" id="removeCard" style="margin-top:16px">${a.fixed ? 'Cancel this week only' : 'Remove from the week'}</button>`, (fd) => {
     if (!fd.get('day')) change({ type: 'park', id });
     else if (fd.get('day') !== d || fd.get('period') !== p) change({ type: 'move', id, toDay: fd.get('day'), toPeriod: fd.get('period') });
-  }, { submitLabel: a.fixed ? 'Close' : 'Move' });
-  // A fixed routine added by mistake (or cancelled this week) can still be taken off, after a confirmation.
+  }, { submitLabel: 'Move' });
   const ap = $('openApCard');
   if (ap) ap.onclick = () => { closeModal(); openAppointmentCard(id); };
   const rc = $('removeCard');
   if (rc) rc.onclick = () => { closeModal(); change({ type: 'remove', id }); };
-  const rm = $('removeFixed');
-  if (rm) rm.onclick = () => { if (confirm(`${a.name} is a fixed routine. Remove it from ${d} ${p.toLowerCase()} only?`)) { closeModal(); change({ type: 'remove', id, force: true }); } };
 }
 
 // Clicks inside the library list. Returns true when handled.

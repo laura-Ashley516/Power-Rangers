@@ -5,9 +5,10 @@
 
 import { APP_VERSION, PERIODS } from './config.js';
 import { ctx, commit, change, undo, onRender } from './context.js';
-import { load, fresh, requestPersistence, exportBackup, importBackup } from './store.js';
-import { $, toast, currentPeriodIndex, orderedDays } from './ui-kit.js';
-import { renderWeek, renderAlerts, changeWeek, openBalance, openSplit, openAddLeftover, startPlacing, cancelPlacing, placeInto, openWeekMenu } from './ui-week.js';
+import { load, save, fresh, requestPersistence, exportBackup, importBackup } from './store.js';
+import { $, toast, currentPeriodIndex, orderedDays, dateKey } from './ui-kit.js';
+import { startNewWeek } from './rules.js';
+import { renderWeek, renderAlerts, changeWeek, weekStart, openBalance, keepDay, openSplit, openAddLeftover, startPlacing, cancelPlacing, placeInto, openWeekMenu } from './ui-week.js';
 import { renderDaily } from './ui-daily.js';
 import { renderToday, addRest } from './ui-today.js';
 import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, openCardMenu, handleLibraryClick, renderQuietSettings, toggleQuiet } from './ui-library.js';
@@ -21,6 +22,20 @@ import { preload, onStatus } from './voice/transcribe.js';
 import { onNotesChanged } from './voice/notes.js';
 
 ctx.state = load();
+
+// A new week has started since the planner was last used: weekly activities moved or cancelled
+// last week go back to their usual place (rules.startNewWeek).
+let newWeekNotice = false;
+{
+  const thisWeek = dateKey(weekStart(0));
+  if (ctx.state.weekOf && ctx.state.weekOf < thisWeek) {
+    const s = ctx.state;
+    newWeekNotice = (s.skipped || []).length > 0 || orderedDays().some((d) => PERIODS.some((p) => s.schedule[d][p].some((a) => a.fixed && a.home)));
+    ctx.state = startNewWeek(s);
+  }
+  if (ctx.state.weekOf !== thisWeek) { ctx.state.weekOf = thisWeek; save(ctx.state); }
+}
+if (newWeekNotice) setTimeout(() => toast('A new week: your weekly activities are back in their usual places.', 5000), 800);
 ctx.weekSchedules = { 0: JSON.parse(JSON.stringify(ctx.state.schedule)) };
 
 // ---------- drawing ----------
@@ -181,6 +196,8 @@ document.addEventListener('click', (e) => {
   const od = t.closest('[data-open-day]');
   if (od) { $('dailySelect2').value = od.dataset.openDay; showView('daily'); return; }
   if (t.closest('[data-open-balance]')) { openBalance(); return; }
+  const keep = t.closest('[data-keep-day]');
+  if (keep) { keepDay(keep.dataset.keepDay); return; }
   const dismiss = t.closest('[data-alert-dismiss]');
   if (dismiss) { sessionStorage.setItem('dismiss-' + dismiss.dataset.alertDismiss, '1'); renderAlerts(); return; }
   if (handleLibraryClick(e)) return;

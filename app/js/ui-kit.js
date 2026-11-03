@@ -11,7 +11,8 @@ export const energyLabel = (e) => (ENERGY[e] || ENERGY.green).label;
 // Monochrome line icon instead of the 🔒 emoji (NN/g: icons need text; COGA: avoid busy icon sets).
 export const CARD_ICON = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5h6M9 10h6M9 14h4"/></svg>';
 export const QUIET_ICON = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8.5 17H5l1.5-2V11a5.5 5.5 0 0 1 8.4-4.7M17.5 11v4l1.5 2h-6M10 20a2 2 0 0 0 4 0M3 3l18 18"/></svg>';
-export const LOCK = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+// "Every week" (a weekly activity): two arrows in a circle. It used to be a lock, but weekly activities can now be moved for one week.
+export const WEEKLY = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></svg>';
 export const shape = (e) => (ENERGY[e] || ENERGY.green).shape;
 
 // Days in screen order. The client's kitchen calendar starts on Sunday; Settings can change it.

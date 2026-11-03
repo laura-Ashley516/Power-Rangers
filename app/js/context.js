@@ -43,7 +43,7 @@ export function change(c, { silent = false, undoable = true } = {}) {
   }
   if (!silent) {
     const msg = result.ok && result.warnings.length ? `${result.message} Note: ${result.warnings[0]}` : result.message;
-    toast(msg, result.warnings.length ? 4200 : 2800, result.ok && undoable && result.undo ? { label: 'Undo', run: undo } : null);
+    toast(msg, result.warnings.length || result.notice ? 5000 : 2800, result.ok && undoable && result.undo ? { label: 'Undo', run: undo } : null);
   }
   return result;
 }

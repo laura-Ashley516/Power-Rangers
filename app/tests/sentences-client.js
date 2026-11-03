@@ -14,5 +14,7 @@ export const CLIENT_SENTENCES = [
   ['Add hanging the laundry on Monday morning', { add: 'Hang laundry', day: 'Monday', period: 'Morning' }],
   ['Skip church this Sunday', { remove: 'Church' }],
   ['Go for a walk on Sunday morning', { add: 'Walk + small groceries', day: 'Sunday', period: 'Morning' }],
+  ['Move the Thursday medical appointment to Thursday morning because the clinic found me a spot', { move: 'Medical appointment', day: 'Thursday', period: 'Morning' }],
+  ['Move physio to Thursday since I feel tired', { move: 'Physiotherapy', day: 'Thursday' }],
   ['Lunch with my friend on Friday afternoon', { add: 'Lunch with a friend', day: 'Friday', period: 'Afternoon' }],
 ];

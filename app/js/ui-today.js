@@ -24,7 +24,7 @@ const clone = (x) => JSON.parse(JSON.stringify(x));
 function bigActivity(a, key, { steps = true } = {}) {
   const e = ENERGY[a.energy] ? a.energy : 'green';
   const stepList = steps && a.steps?.length ? `<div class="remember"><strong>Remember</strong><ul class="steps">${a.steps.map((s) => `<li>${esc(s)}</li>`).join('')}</ul></div>` : '';
-  return `<div class="big-act e-${e}"><span class="activity-shape" aria-hidden="true">${shape(e)}</span><div style="flex:1;min-width:0"><h3>${esc(a.name)}</h3><div class="meta">${energyLabel(e)}${a.duration ? ` · ${a.duration} min` : ''}${a.fixed ? ' · fixed' : ''}</div>${a.note ? `<div class="meta">${esc(a.note)}</div>` : ''}${isQuiet(a, ctx.state.library) ? '<div class="meta">Quiet time: the device stays silent.</div>' : ''}${stepList}${steps && isAppointment(a, ctx.state.library) ? appointmentToday(a) : ''}</div></div>`;
+  return `<div class="big-act e-${e}"><span class="activity-shape" aria-hidden="true">${shape(e)}</span><div style="flex:1;min-width:0"><h3>${esc(a.name)}</h3><div class="meta">${energyLabel(e)}${a.duration ? ` · ${a.duration} min` : ''}${a.fixed ? ' · every week' : ''}</div>${a.note ? `<div class="meta">${esc(a.note)}</div>` : ''}${isQuiet(a, ctx.state.library) ? '<div class="meta">Quiet time: the device stays silent.</div>' : ''}${stepList}${steps && isAppointment(a, ctx.state.library) ? appointmentToday(a) : ''}</div></div>`;
 }
 
 export function renderToday() {

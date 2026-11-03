@@ -2,7 +2,7 @@
 // Checks the energy rules, the parser against tests/sentences.js, and the device backup lines.
 
 import { fresh, sampleWeek, scheduleToLines, linesToSchedule, emptySchedule, migrate, isAppointment, isQuiet, quietLines } from '../js/store.js';
-import { checkDay, applyChange, findItem, suggestBalance, splitChanges } from '../js/rules.js';
+import { checkDay, applyChange, findItem, suggestBalance, splitChanges, daySignature, startNewWeek } from '../js/rules.js';
 import { parse } from '../js/voice/parser.js';
 import { SENTENCES, NOW } from './sentences.js';
 import { CLIENT_SENTENCES } from './sentences-client.js';
@@ -34,10 +34,23 @@ check('red + yellow on the same day is flagged', day([R, Y]).over);
 check('2 reds is flagged', day([R, R]).over);
 
 const st = sampleWeek();
+// Weekly activities (fixed) can be changed for one week; a new week puts them back (client feedback, Nov 3).
 let r = applyChange(st, { type: 'move', id: 's1', toDay: 'Tuesday', toPeriod: 'Morning' });
-check('fixed routine cannot be moved', !r.ok);
+check('weekly activity moves for this week, with a "this week only" notice', r.ok && findItem(r.state.schedule, 's1').day === 'Tuesday' && /this week only/.test(r.message) && /Monday morning/.test(r.notice));
+let nw = startNewWeek(r.state);
+check('new week: a moved weekly activity is back in its usual place', findItem(nw.schedule, 's1')?.day === 'Monday' && findItem(nw.schedule, 's1')?.period === 'Morning' && !findItem(nw.schedule, 's1').item.home);
+const twice = applyChange(applyChange(r.state, { type: 'move', id: 's1', toDay: 'Friday', toPeriod: 'Evening' }).state, { type: 'move', id: 's1', toDay: 'Monday', toPeriod: 'Morning' });
+check('moving it back to its usual place says so and forgets the move', twice.ok && /usual place/.test(twice.message) && !findItem(twice.state.schedule, 's1').item.home);
+check('undo of a weekly move puts it back and forgets the move', !findItem(applyChange(r.state, r.undo).state.schedule, 's1').item.home && findItem(applyChange(r.state, r.undo).state.schedule, 's1').day === 'Monday');
 r = applyChange(st, { type: 'remove', id: 's5' });
-check('fixed routine cannot be removed', !r.ok);
+check('weekly activity can be cancelled for this week', r.ok && !findItem(r.state.schedule, 's5') && /comes back next week/.test(r.message));
+nw = startNewWeek(r.state);
+check('new week: a cancelled weekly activity comes back, once', nw.schedule.Thursday.Morning.filter((a) => a.name === 'Physiotherapy').length === 1 && !nw.skipped.length);
+check('undo of a cancel does not bring it back twice', startNewWeek(applyChange(r.state, r.undo).state).schedule.Thursday.Morning.filter((a) => a.name === 'Physiotherapy').length === 1);
+const addW = applyChange(st, { type: 'add', day: 'Sunday', period: 'Evening', item: { id: 'w9', name: 'Choir', energy: 'green', fixed: true } });
+check('undoing the add of a weekly activity does not bring it back next week', !startNewWeek(applyChange(addW.state, { ...addW.undo, force: true }).state).schedule.Sunday.Evening.some((a) => a.name === 'Choir'));
+const oneOff = applyChange(st, { type: 'move', id: 's2', toDay: 'Friday', toPeriod: 'Morning' });
+check('new week: one-off activities stay where they are', findItem(startNewWeek(oneOff.state).schedule, 's2').day === 'Friday');
 r = applyChange(st, { type: 'move', id: 's2', toDay: 'Friday', toPeriod: 'Morning' });
 check('movable activity moves', r.ok && findItem(r.state.schedule, 's2').day === 'Friday');
 check('original state untouched', findItem(st.schedule, 's2').day === 'Monday');
@@ -64,7 +77,8 @@ const leftId = cw.leftovers[0].id;
 r = applyChange(cw, { type: 'place', id: leftId, toDay: 'Sunday', toPeriod: 'Evening' });
 check('place: a later activity goes into a day', r.ok && findItem(r.state.schedule, leftId)?.day === 'Sunday' && !r.state.leftovers.some((a) => a.id === leftId));
 const walkId = cw.schedule.Monday.Morning[0].id;
-check('fixed routines cannot be parked', !applyChange(cw, { type: 'park', id: walkId }).ok);
+const parked = applyChange(cw, { type: 'park', id: walkId });
+check('weekly activity can go to "Later this week", and is back home next week (not also in the tray)', parked.ok && findItem(startNewWeek(parked.state).schedule, walkId)?.day === 'Monday' && !startNewWeek(parked.state).leftovers.some((a) => a.id === walkId));
 check('lighter week: nothing to change in a balanced week', suggestBalance(cw.schedule).length === 0);
 const busy = JSON.parse(JSON.stringify(cw.schedule));
 busy.Monday.Evening = [{ id: 'big', name: 'Big shopping', energy: 'red' }];
@@ -76,6 +90,21 @@ check('lighter week: proposes moves, never moves a fixed routine', fixedOk);
 const after = JSON.parse(JSON.stringify(busy));
 props.forEach((p) => { const f = findItem(after, p.id); after[f.day][f.period] = after[f.day][f.period].filter((x) => x.id !== p.id); if (p.toDay) after[p.toDay][p.toPeriod].push(f.item); });
 check('lighter week: after the moves every day is within the rules', allDays.every((d) => !checkDay(after, d).over));
+check('lighter week: a day kept "as it is" is left alone', suggestBalance(busy, { keep: ['Monday'] }).every((p) => p.fromDay !== 'Monday'));
+const sigBefore = daySignature(busy, 'Monday');
+const busy2 = JSON.parse(JSON.stringify(busy)); busy2.Monday.Morning.push({ id: 'extra', name: 'Extra', energy: 'green' });
+check('"Keep as it is" ends when something on that day changes', sigBefore === daySignature(busy, 'Monday') && sigBefore !== daySignature(busy2, 'Monday'));
+
+// Client feedback (Nov 3): "Move the Thursday medical appointment to Thursday morning" did nothing visible.
+// The appointment is weekly (fixed): it moves at once, for this week only, and the message says so.
+const medId = findItem(cw.schedule, cw.schedule.Thursday.Afternoon.find((a) => a.name === 'Medical appointment').id).item.id;
+let pm = parse('Move the Thursday medical appointment to Thursday morning because the ABI clinic found me a spot', { library: cw.library, schedule: cw.schedule, now: NOW });
+check('voice: a reason after "because" is ignored', pm.length === 1 && pm[0].ok && pm[0].change.id === medId && pm[0].change.toPeriod === 'Morning', JSON.stringify(pm));
+const moved = applyChange(cw, pm[0].change);
+check('voice: the appointment moves to Thursday morning with no question', moved.ok && findItem(moved.state.schedule, medId)?.period === 'Morning');
+check('voice: the notice says it is for this week only', /this week only.*Thursday afternoon/.test(moved.notice));
+check('voice: that move can be undone', findItem(applyChange(moved.state, moved.undo).state.schedule, medId)?.period === 'Afternoon');
+
 const parts = splitChanges({ id: 'meal', name: 'Meal prep (part)', energy: 'green' }, [{ name: 'meat' }, { name: 'vegetables' }, { name: 'rice' }], 'Saturday', 'Afternoon');
 check('split: 3 parts on 3 days in a row', parts.map((c) => c.day).join() === 'Saturday,Sunday,Monday' && parts[2].item.name === 'Meal prep 3/3: rice');
 
@@ -115,7 +144,7 @@ check('the box is always visible (not hidden)', !!box && !/class="[^"]*\bhidden\
 check('the week screen opens first', /<section id="weeklyView" class="view"/.test(html) && /<section id="todayView" class="view hidden"/.test(html));
 check('drag code is present (mouse, finger, pen)', mainJs.includes("addEventListener('pointerdown'") && mainJs.includes('function dropOn') && mainJs.includes('startDrag'));
 check('tap-then-tap alternative is present', mainJs.includes('placeInto(ctx.placing.kind') && weekJs.includes('export function startPlacing'));
-check('library tiles can be dragged', weekJs.includes("kind === 'library' || kind === 'leftover'"));
+check('library tiles, leftovers and week cards (weekly ones too) can be dragged', weekJs.includes("const draggable = ['library', 'leftover', 'scheduled'].includes(kind);"));
 
 // ---------- Parser ----------
 console.log('Parser');

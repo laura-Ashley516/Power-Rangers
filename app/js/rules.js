@@ -46,6 +46,21 @@ export function findItem(schedule, id) {
 const where = (day, period) => `${day} ${period.toLowerCase()}`;
 const fail = (state, message) => ({ ok: false, state, message, warnings: [] });
 
+// Weekly activities (fixed: true) come back to their usual place every week, but she can change one week
+// freely (drag, menu or voice), with no question asked: the message says it is for this week only.
+//   item.home     = its usual { day, period }, kept while it is moved somewhere else this week
+//   state.skipped = weekly activities cancelled (or set aside) this week: [{ item, day, period }]
+// startNewWeek() puts everything back. Client feedback, Nov 3 2026.
+const usual = (item, day, period) => item.home || { day, period };
+const forget = (next, id) => { next.skipped = (next.skipped || []).filter((x) => x.item.id !== id); };
+const skip = (next, item, day, period) => {
+  const h = usual(item, day, period);
+  const copy = { ...item };
+  delete copy.home;
+  next.skipped = [...(next.skipped || []).filter((x) => x.item.id !== item.id), { item: copy, day: h.day, period: h.period }];
+  return h;
+};
+
 // change:
 //   { type:'add', day, period, item:{name, energy, duration, fixed, reminder, activityId?, id?}, libraryItem? }
 //   { type:'move', id, toDay, toPeriod }
@@ -65,6 +80,7 @@ export function applyChange(state, change) {
     if (change.libraryItem && !next.library.some((a) => a.id === change.libraryItem.id)) next.library.push({ ...change.libraryItem });
     const item = { duration: 30, fixed: false, reminder: true, energy: 'green', ...change.item, id: change.item.id || uid() };
     s[day][period].push(item);
+    forget(next, item.id);
     return done(next, `${item.name} added to ${where(day, period)}.`, [day], { type: 'remove', id: item.id, force: true }, item.id);
   }
 
@@ -72,21 +88,29 @@ export function applyChange(state, change) {
     const found = findItem(s, change.id);
     if (!found) return fail(state, 'That activity is no longer in the schedule.');
     const { day, period, item } = found;
-    if (item.fixed && !change.force) return fail(state, `${item.name} is a fixed routine, so it cannot be moved.`);
     if (!DAYS.includes(change.toDay) || !PERIODS.includes(change.toPeriod)) return fail(state, 'I need a day and a time of day.');
     if (day === change.toDay && period === change.toPeriod) return fail(state, `${item.name} is already on ${where(day, period)}.`);
     s[day][period] = s[day][period].filter((x) => x.id !== item.id);
+    let notice = '';
+    if (item.fixed) {
+      const h = usual(item, day, period);
+      if (h.day === change.toDay && h.period === change.toPeriod) { delete item.home; notice = 'It is back in its usual place.'; }
+      else { item.home = h; notice = `For this week only: next week it is back on ${where(h.day, h.period)}.`; }
+    }
     s[change.toDay][change.toPeriod].push(item);
     return done(next, `Moved ${item.name} to ${where(change.toDay, change.toPeriod)}.`, [change.toDay],
-      { type: 'move', id: item.id, toDay: day, toPeriod: period, force: true }, item.id);
+      { type: 'move', id: item.id, toDay: day, toPeriod: period }, item.id, notice);
   }
 
   if (change.type === 'remove') {
     const found = findItem(s, change.id);
     if (!found) return fail(state, 'That activity is no longer in the schedule.');
     const { day, period, item } = found;
-    if (item.fixed && !change.force) return fail(state, `${item.name} is a fixed routine, so it cannot be removed.`);
     s[day][period] = s[day][period].filter((x) => x.id !== item.id);
+    if (item.fixed && !change.force) { // force = undoing an "add": nothing to bring back next week
+      skip(next, item, day, period);
+      return done(next, `${item.name} cancelled on ${where(day, period)}.`, [], { type: 'add', day, period, item: { ...item } }, item.id, 'For this week only: it comes back next week.');
+    }
     return done(next, `${item.name} removed from ${where(day, period)}.`, [],
       { type: 'add', day, period, item: { ...item } }, item.id);
   }
@@ -110,10 +134,11 @@ export function applyChange(state, change) {
     const found = findItem(s, change.id);
     if (!found) return fail(state, 'That activity is no longer in the schedule.');
     const { day, period, item } = found;
-    if (item.fixed && !change.force) return fail(state, `${item.name} is a fixed routine, so it stays in the week.`);
     s[day][period] = s[day][period].filter((x) => x.id !== item.id);
     next.leftovers = [...(next.leftovers || []), item];
-    return done(next, `${item.name} moved to “Later this week”.`, [], { type: 'place', id: item.id, toDay: day, toPeriod: period }, item.id);
+    if (item.fixed) skip(next, item, day, period);
+    return done(next, `${item.name} moved to “Later this week”.`, [], { type: 'place', id: item.id, toDay: day, toPeriod: period }, item.id,
+      item.fixed ? 'Next week it is back in its usual place.' : '');
   }
 
   if (change.type === 'place') {
@@ -121,6 +146,11 @@ export function applyChange(state, change) {
     if (!item) return fail(state, 'That activity is no longer in “Later this week”.');
     if (!DAYS.includes(change.toDay) || !PERIODS.includes(change.toPeriod)) return fail(state, 'I need a day and a time of day.');
     next.leftovers = next.leftovers.filter((x) => x.id !== item.id);
+    if (item.fixed) {
+      const h = (state.skipped || []).find((x) => x.item.id === item.id);
+      forget(next, item.id);
+      if (h && (h.day !== change.toDay || h.period !== change.toPeriod)) item.home = { day: h.day, period: h.period };
+    }
     s[change.toDay][change.toPeriod].push(item);
     return done(next, `${item.name} added to ${where(change.toDay, change.toPeriod)}.`, [change.toDay], { type: 'park', id: item.id, force: true }, item.id);
   }
@@ -142,15 +172,16 @@ export function applyChange(state, change) {
 }
 
 // ---------- "Suggest a lighter week" ----------
-// For every day over the client's limits, propose moving ONE movable activity (red first, then yellow)
+// For every day over the client's limits, propose moving ONE activity (red first, then yellow; weekly ones are not suggested)
 // to the same time of day on the day where it fits best: the day stays within the rules, no red next
 // to another red, at most 3 cards, and the lightest such day wins. If no day fits, it proposes
-// "Later this week" (toDay = null). Pure: returns proposals, changes nothing.
+// "Later this week" (toDay = null). Days in `keep` are left alone. Pure: returns proposals, changes nothing.
 // Returns [{ id, name, energy, fromDay, fromPeriod, toDay, toPeriod, why }]
-export function suggestBalance(schedule) {
+export function suggestBalance(schedule, { keep = [] } = {}) {
   let s = clone(schedule);
   const out = [];
   for (const day of DAYS) {
+    if (keep.includes(day)) continue; // a day she cannot change (e.g. a friend visiting): left as it is
     let guard = 0;
     while (checkDay(s, day).over && guard++ < 3) {
       const before = checkDay(s, day);
@@ -197,7 +228,50 @@ export function splitChanges(base, parts, startDay, period) {
 
 export const restMinutes = REST_AFTER_RED_MIN;
 
-function done(state, message, daysToCheck, undo, itemId) {
+// notice: what to tell her about a weekly activity ("for this week only…"), also part of message.
+function done(state, message, daysToCheck, undo, itemId, notice = '') {
   const warnings = daysToCheck.flatMap((d) => checkDay(state.schedule, d).warnings.map((w) => `${d}: ${w}`));
-  return { ok: true, state, message, warnings, undo, itemId };
+  return { ok: true, state, message: notice ? `${message} ${notice}` : message, warnings, undo, itemId, notice };
+}
+
+// ---------- a new week ----------
+// Weekly activities go back to their usual place, and the ones cancelled this week come back
+// (only if that place does not already have the same activity). One-off activities stay as they are.
+const sameActivity = (a, b) => (a.activityId && a.activityId === b.activityId) || a.name === b.name;
+
+export function resetWeekly(schedule, skipped = []) {
+  const s = clone(schedule);
+  for (const day of DAYS) for (const period of PERIODS) {
+    for (const item of [...(s[day][period] || [])]) {
+      if (!item.fixed || !item.home) continue;
+      const h = item.home;
+      delete item.home;
+      if (!DAYS.includes(h.day) || !PERIODS.includes(h.period)) continue;
+      s[day][period] = s[day][period].filter((x) => x.id !== item.id);
+      s[h.day][h.period].push(item);
+    }
+  }
+  for (const { item, day, period } of skipped) {
+    if (!s[day]?.[period] || s[day][period].some((x) => sameActivity(x, item))) continue;
+    s[day][period].push(clone(item));
+  }
+  return s;
+}
+
+// The whole state on the first day of a new week.
+export function startNewWeek(state) {
+  const next = clone(state);
+  const skipped = next.skipped || [];
+  next.schedule = resetWeekly(next.schedule, skipped);
+  const back = new Set(skipped.map((x) => x.item.id));
+  next.leftovers = (next.leftovers || []).filter((x) => !back.has(x.id));
+  next.skipped = [];
+  next.kept = {};
+  return next;
+}
+
+// A day's content in one string: "Keep this day as it is" stays valid only while the day is unchanged
+// (and a different week has different ids, so a kept day never carries over).
+export function daySignature(schedule, day) {
+  return items(schedule, day).map((a) => a.id).sort().join(',');
 }

@@ -6,7 +6,7 @@
 //
 // Track: B - Data + device
 
-const CACHE = 'pwr-app-0.8.2';
+const CACHE = 'pwr-app-0.8.3';
 const RUNTIME = 'pwr-runtime';
 const APP_FILES = [
   './', './index.html', './manifest.json', './css/styles.css', './css/fonts.css',

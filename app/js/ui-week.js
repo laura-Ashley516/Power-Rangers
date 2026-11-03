@@ -6,9 +6,9 @@
 
 import { DAYS, PERIODS, ENERGY } from './config.js';
 import { ctx, commit, change } from './context.js';
-import { checkDay, suggestBalance, splitChanges } from './rules.js';
+import { checkDay, suggestBalance, splitChanges, daySignature, resetWeekly } from './rules.js';
 import { uid } from './store.js';
-import { $, esc, shape, energyLabel, toast, showModal, showPanelModal, closeModal, orderedDays, dateKey, energyPicker, LOCK, CARD_ICON, QUIET_ICON } from './ui-kit.js';
+import { $, esc, shape, energyLabel, toast, showModal, showPanelModal, closeModal, orderedDays, dateKey, energyPicker, WEEKLY, CARD_ICON, QUIET_ICON } from './ui-kit.js';
 import { isAppointment, isQuiet } from './store.js';
 import { printWeek } from './print.js';
 
@@ -48,13 +48,13 @@ export function budgetHtml(check, { label = true } = {}) {
 export function renderCard(a, day, period, index, kind = 'scheduled') {
   const energy = ENERGY[a.energy] ? a.energy : 'green';
   const lock = a.fixed && kind !== 'library';
-  const draggable = kind === 'library' || kind === 'leftover' || (kind === 'scheduled' && !a.fixed);
+  const draggable = ['library', 'leftover', 'scheduled'].includes(kind); // weekly activities too (moved for this week only)
   const isNew = a.voiceNew ? '<span class="new-mark" title="Added from a voice note">new</span>' : '';
-  const label = `${a.name}, ${energyLabel(energy)}${lock ? ', fixed' : ''}${a.voiceNew ? ', added from a voice note' : ''}`;
+  const label = `${a.name}, ${energyLabel(energy)}${lock ? ', every week' : ''}${lock && a.home ? `, moved this week (usually ${a.home.day} ${a.home.period.toLowerCase()})` : ''}${a.voiceNew ? ', added from a voice note' : ''}`;
   const meta = [a.duration ? `<span class="dur">${a.duration} min</span>` : '', a.steps?.length && kind !== 'library' ? `<span class="dur">☑ ${a.steps.length} steps</span>` : ''].filter(Boolean).join(' ');
   const controls = kind === 'leftover' ? `<div class="activity-controls"><button class="small" data-action="drop-leftover" title="Remove" aria-label="Remove ${esc(a.name)} from later">×</button></div>` : '';
   const pos = kind === 'scheduled' ? `data-day="${day}" data-period="${period}" data-index="${index}"` : '';
-  return `<div class="activity-card ${energy}${lock ? ' fixed' : ''}${a.voiceNew ? ' voice-new' : ''}${ctx.placing?.id === a.id ? ' selected' : ''}" tabindex="0" role="button" aria-label="${esc(label)}" draggable="${draggable}" data-card-type="${kind}" data-id="${esc(a.id)}" ${pos}><div class="activity-text"><div class="activity-name"><span class="activity-shape" aria-hidden="true">${shape(energy)}</span> ${esc(a.name)}${lock ? ` <span class="fixed-lock" title="Fixed">${LOCK}</span>` : ''}${kind !== 'library' && isAppointment(a, ctx.state.library) && (a.questions?.length || a.afterNote) ? ` <span class="fixed-lock" title="Appointment card ready">${CARD_ICON}</span>` : ''}${kind !== 'library' && isQuiet(a, ctx.state.library) ? ` <span class="fixed-lock" title="Quiet time: the device stays silent">${QUIET_ICON}</span>` : ''} ${isNew}</div>${meta ? `<div class="activity-meta">${meta}</div>` : ''}</div>${controls}</div>`;
+  return `<div class="activity-card ${energy}${lock ? ' fixed' : ''}${a.voiceNew ? ' voice-new' : ''}${ctx.placing?.id === a.id ? ' selected' : ''}" tabindex="0" role="button" aria-label="${esc(label)}" draggable="${draggable}" data-card-type="${kind}" data-id="${esc(a.id)}" ${pos}><div class="activity-text"><div class="activity-name"><span class="activity-shape" aria-hidden="true">${shape(energy)}</span> ${esc(a.name)}${lock ? ` <span class="fixed-lock" title="Every week">${WEEKLY}</span>` : ''}${kind !== 'library' && isAppointment(a, ctx.state.library) && (a.questions?.length || a.afterNote) ? ` <span class="fixed-lock" title="Appointment card ready">${CARD_ICON}</span>` : ''}${kind !== 'library' && isQuiet(a, ctx.state.library) ? ` <span class="fixed-lock" title="Quiet time: the device stays silent">${QUIET_ICON}</span>` : ''} ${isNew}</div>${meta ? `<div class="activity-meta">${meta}</div>` : ''}${lock && a.home ? '<div class="moved-note">This week only</div>' : ''}</div>${controls}</div>`;
 }
 
 // The calendar is a grid, like her paper calendar: one column per day with a clear line between days,
@@ -134,14 +134,25 @@ export function placeInto(kind, id, day, period) {
 
 // One calm box for the whole week (not one per day): days over the client's rules first,
 // then simple tips. Hidden for this session with "Hide".
+// "Keep as it is": for a day she cannot change (a friend visiting today), the note and the suggestions
+// leave that day alone until something on it changes.
+const keptDays = () => days().filter((d) => ctx.state.kept?.[d] && ctx.state.kept[d] === daySignature(ctx.state.schedule, d));
+
+export function keepDay(day) {
+  commit({ ...ctx.state, kept: { ...(ctx.state.kept || {}), [day]: daySignature(ctx.state.schedule, day) } });
+  toast(`${day} stays as it is.`);
+}
+
 export function renderAlerts() {
   const root = $('overloadAlerts');
   root.innerHTML = '';
   if (!ctx.state.settings.alerts || sessionStorage.getItem('dismiss-alerts')) return;
   const over = [], tips = [];
+  const kept = keptDays();
   days().forEach((day) => {
+    if (kept.includes(day)) return;
     const c = checkDay(ctx.state.schedule, day);
-    if (c.warnings.length) over.push(`<b>${day}</b>: ${esc(c.warnings[0].replace(/\.$/, ''))} (${fmt(c.load)} of ${fmt(c.limit)}).`);
+    if (c.warnings.length) over.push(`<b>${day}</b>: ${esc(c.warnings[0].replace(/\.$/, ''))} (${fmt(c.load)} of ${fmt(c.limit)}). <button type="button" class="small keep-day" data-keep-day="${day}">Keep as it is</button>`);
     else if (c.tips.length) tips.push(`<b>${day}</b>: ${esc(c.tips[0])}`);
   });
   if (!over.length && !tips.length) return;
@@ -153,7 +164,8 @@ export function changeWeek(next) {
   ctx.weekSchedules[ctx.weekOffset] = JSON.parse(JSON.stringify(ctx.state.schedule));
   ctx.weekOffset = next;
   if (!ctx.weekSchedules[ctx.weekOffset]) {
-    const copy = JSON.parse(JSON.stringify(ctx.state.schedule));
+    // A week you have not opened yet starts from this one, with weekly activities back in their usual place.
+    const copy = resetWeekly(ctx.state.schedule, ctx.state.skipped);
     DAYS.forEach((day) => PERIODS.forEach((period) => copy[day][period].forEach((a) => { a.id = uid(); delete a.voiceNew; })));
     ctx.weekSchedules[ctx.weekOffset] = copy;
   }
@@ -167,9 +179,9 @@ const applyProposal = (p) => (p.toDay ? change({ type: 'move', id: p.id, toDay: 
 
 // "Suggest a lighter week": every proposal is shown and can be unticked; nothing changes until "Apply".
 export function openBalance() {
-  const proposals = suggestBalance(ctx.state.schedule);
+  const proposals = suggestBalance(ctx.state.schedule, { keep: keptDays() });
   if (!proposals.length) { toast('Every day is within your energy rules. Nothing to change.'); return; }
-  const modal = showPanelModal('Suggest a lighter week', `<p class="muted">These moves keep every day within your rules. Fixed routines never move. Untick any you want to keep.</p><ul class="balance-list">${proposals.map((p, i) => `<li><label><input type="checkbox" data-proposal="${i}" checked><span><b>${shape(p.energy)} ${esc(p.name)}</b>: ${p.fromDay} → ${p.toDay ? `${p.toDay} ${p.toPeriod.toLowerCase()}` : '“Later this week”'}<small>${esc(p.why)}</small></span></label></li>`).join('')}</ul><div class="modal-actions"><button type="button" id="balanceCancel">Cancel</button><button type="button" class="primary" id="balanceApply">Apply the ticked moves</button></div>`);
+  const modal = showPanelModal('Suggest a lighter week', `<p class="muted">These moves keep every day within your rules. Weekly activities are not moved. Untick any you want to keep. If a day cannot change, close this and press “Keep as it is” next to that day.</p><ul class="balance-list">${proposals.map((p, i) => `<li><label><input type="checkbox" data-proposal="${i}" checked><span><b>${shape(p.energy)} ${esc(p.name)}</b>: ${p.fromDay} → ${p.toDay ? `${p.toDay} ${p.toPeriod.toLowerCase()}` : '“Later this week”'}<small>${esc(p.why)}</small></span></label></li>`).join('')}</ul><div class="modal-actions"><button type="button" id="balanceCancel">Cancel</button><button type="button" class="primary" id="balanceApply">Apply the ticked moves</button></div>`);
   $('balanceCancel').onclick = closeModal;
   $('balanceApply').onclick = () => {
     const chosen = [...modal.querySelectorAll('[data-proposal]:checked')].map((x) => proposals[Number(x.dataset.proposal)]);
@@ -197,7 +209,7 @@ export function openSplit() {
 
 export function repeatLastWeek() {
   if (!confirm('Copy this week to next week? You can still change next week afterwards.')) return;
-  const clone = JSON.parse(JSON.stringify(ctx.state.schedule));
+  const clone = resetWeekly(ctx.state.schedule, ctx.state.skipped);
   DAYS.forEach((d) => PERIODS.forEach((p) => clone[d][p].forEach((a) => { a.id = uid(); delete a.voiceNew; })));
   ctx.weekSchedules[ctx.weekOffset] = JSON.parse(JSON.stringify(ctx.state.schedule));
   ctx.weekSchedules[ctx.weekOffset + 1] = clone;

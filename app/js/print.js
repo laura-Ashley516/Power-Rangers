@@ -16,7 +16,7 @@ const printedOn = () => new Date().toLocaleDateString(undefined, { month: 'short
 
 function activity(a) {
   const steps = a.steps?.length ? `<br><small>☐ ${a.steps.map(esc).join(' ☐ ')}</small>` : '';
-  return `<div class="p-act ${a.energy}"><span class="p-shape">${shape(a.energy)}</span> ${esc(a.name)}${a.fixed ? ' <span class="p-lock">(fixed)</span>' : ''}${steps}</div>`;
+  return `<div class="p-act ${a.energy}"><span class="p-shape">${shape(a.energy)}</span> ${esc(a.name)}${a.fixed ? ' <span class="p-lock">(every week)</span>' : ''}${steps}</div>`;
 }
 
 function legend() {

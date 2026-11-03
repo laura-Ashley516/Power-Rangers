@@ -83,7 +83,7 @@ export function applyText(text, { noteId = null, now = new Date() } = {}) {
     }
     const entry = { id: uid(), at: Date.now(), noteId, heard: text, summary: p.summary, message: r.message, warnings: r.warnings, undo: r.undo, undone: false };
     state.changeLog = [entry, ...(state.changeLog || [])].slice(0, 50);
-    results.push({ ok: true, summary: p.summary, message: r.message, warnings: r.warnings, changeId: entry.id });
+    results.push({ ok: true, summary: p.summary, message: r.message, notice: r.notice, warnings: r.warnings, changeId: entry.id });
   }
   if (state !== ctx.state) commit(state);
   return results;
@@ -121,7 +121,7 @@ export async function processNote(id) {
 
 // Run the pipeline on every note that has not been processed yet, one at a time.
 export async function processWaiting(onEach) {
-  const waiting = (await allNotes()).filter((n) => n.status === 'new').reverse(); // oldest first
+  const waiting = (await allNotes()).filter((n) => n.status === 'new' || n.status === 'transcribing').reverse(); // oldest first
   const done = [];
   for (const n of waiting) {
     onEach?.(n, done.length, waiting.length);
@@ -138,4 +138,4 @@ export async function retryWithText(id, text) {
   return updateNote(id, { status: statusFor(results), transcript: text, results });
 }
 
-export const pendingCount = async () => (await allNotes()).filter((n) => ['new', 'to-sort', 'partly', 'error'].includes(n.status)).length;
+export const pendingCount = async () => (await allNotes()).filter((n) => ['new', 'transcribing', 'to-sort', 'partly', 'error'].includes(n.status)).length;

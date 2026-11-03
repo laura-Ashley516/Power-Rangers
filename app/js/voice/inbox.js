@@ -11,7 +11,7 @@ import { allNotes, deleteNote, processNote, processWaiting, retryWithText, undoC
 import { renderResults } from './recorder.js';
 
 const STATUS_TEXT = {
-  new: 'Waiting', transcribing: 'Listening…', applied: 'Added to calendar', partly: 'Partly added', 'to-sort': 'To sort', empty: 'No words heard', error: 'Could not process',
+  new: 'Waiting', transcribing: 'Not finished', applied: 'Added to calendar', partly: 'Partly added', 'to-sort': 'To sort', empty: 'No words heard', error: 'Could not process',
 };
 const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', hour: 'numeric', minute: '2-digit' });
 
@@ -22,7 +22,7 @@ function audioUrl(note) {
 export async function renderVoiceView() {
   renderChangeLog();
   const notes = await allNotes();
-  const toSort = notes.filter((n) => ['to-sort', 'partly', 'error'].includes(n.status));
+  const toSort = notes.filter((n) => ['to-sort', 'partly', 'error', 'transcribing'].includes(n.status));
   $('toSortList').innerHTML = toSort.length ? toSort.map((n) => `
     <article class="note-card">
       <div class="note-head"><strong>${n.source === 'device' ? 'From the device' : 'Recorded on the iPad'} · ${when(n.recordedAt)}</strong><span class="badge">${STATUS_TEXT[n.status]}</span></div>
@@ -30,14 +30,14 @@ export async function renderVoiceView() {
       ${n.error ? `<p class="muted">${esc(n.error)}</p>` : ''}
       ${renderResults((n.results || []).filter((r) => !r.ok))}
       <div class="field"><label for="fix-${n.id}">Words (fix them if needed)</label><input id="fix-${n.id}" value="${esc(n.transcript || '')}" placeholder="e.g. Add dentist on Friday morning"></div>
-      <div class="row" style="margin-top:8px"><button class="primary small" data-retry="${n.id}">Try again</button>${n.status === 'error' ? `<button class="small" data-reprocess="${n.id}">Listen again</button>` : ''}<button class="small danger" data-delete-note="${n.id}">Delete</button></div>
-    </article>`).join('') : '<p class="empty-state">Nothing to sort. 🎉</p>';
+      <div class="row" style="margin-top:8px"><button class="primary small" data-retry="${n.id}">Try again</button>${n.status === 'error' || n.status === 'transcribing' ? `<button class="small" data-reprocess="${n.id}">Listen again</button>` : ''}<button class="small danger" data-delete-note="${n.id}">Delete</button></div>
+    </article>`).join('') : '<p class="empty-state">Nothing to sort.</p>';
 
   $('notesList').innerHTML = notes.length ? notes.map((n) => `
     <article class="note-row">
       <div><strong>${n.source === 'device' ? 'From the device' : 'Recorded on the iPad'} · ${when(n.recordedAt)}</strong> <span class="badge">${STATUS_TEXT[n.status] || n.status}</span>
       <p class="muted">${n.transcript ? '“' + esc(n.transcript) + '”' : 'No words yet.'}</p></div>
-      <div class="row"><audio controls preload="none" src="${audioUrl(n)}"></audio>${n.status === 'new' || n.status === 'error' ? `<button class="small" data-reprocess="${n.id}">Process</button>` : ''}<button class="small danger" data-delete-note="${n.id}">Delete</button></div>
+      <div class="row"><audio controls preload="none" src="${audioUrl(n)}"></audio>${['new', 'error', 'transcribing'].includes(n.status) ? `<button class="small" data-reprocess="${n.id}">Process</button>` : ''}<button class="small danger" data-delete-note="${n.id}">Delete</button></div>
     </article>`).join('') : '<p class="empty-state">No voice notes yet. Use “Voice note” at the top, or record on the reminder device.</p>';
   updateCount();
 }

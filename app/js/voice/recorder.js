@@ -184,7 +184,11 @@ export function openVoiceModal() {
     lastMaxLevel = diag.used === 'raw' ? r.maxLevel : 1;
     status.textContent = getStatus().state === 'ready' ? 'Listening to your note…' : 'Preparing speech understanding (first time only)…';
     const note = await saveNote({ source: 'ipad', bytes: wav, mime: 'audio/wav', recordedAt: startedAt });
-    showResults(await processNote(note.id));
+    // Never leave her waiting without a word: after 20 s, say it is still working and that the note is safe.
+    const slow = setTimeout(() => { status.textContent = 'Still listening… The first time can take a minute. Your note is saved: you can close this and find it in Voice notes.'; }, 20000);
+    const done = await processNote(note.id);
+    clearTimeout(slow);
+    showResults(done);
   }
 
   $('closeVoice').onclick = () => { clearInterval(timer); recorder?.cancel(); unsub(); closeModal(); };
@@ -231,17 +235,24 @@ export function openVoiceModal() {
       return;
     }
     status.innerHTML = `I heard: <strong>“${esc(note.transcript)}”</strong>`;
-    $('recResults').innerHTML = renderResults(note.results);
-    $('recResults').querySelectorAll('[data-undo]').forEach((b) => (b.onclick = () => {
-      const r = undoChange(b.dataset.undo);
-      toast(r.message);
-      if (r.ok) { b.disabled = true; b.textContent = 'Undone'; }
-    }));
+    const results = note.results || [];
+    const draw = () => {
+      $('recResults').innerHTML = renderResults(results) + (results.some((r) => r.ok) ? '<div class="modal-actions" style="justify-content:flex-start"><button type="button" class="primary" id="seeWeek">See it in the week</button></div>' : '');
+      $('recResults').querySelectorAll('[data-undo]').forEach((b) => (b.onclick = () => {
+        const r = undoChange(b.dataset.undo);
+        toast(r.message);
+        if (r.ok) { b.disabled = true; b.textContent = 'Undone'; }
+      }));
+      $('seeWeek')?.addEventListener('click', () => { clearInterval(timer); unsub(); closeModal(); document.querySelector('[data-view="weekly"]')?.click(); });
+    };
+    draw();
   }
 }
 
+// One line per command: done (with Undo, and "for this week only" for a weekly activity), or not done and why.
 export function renderResults(results = []) {
-  return `<ul class="result-list">${results.map((r) => r.ok
-    ? `<li class="ok">✓ ${esc(r.summary)}${r.warnings?.length ? `<br><small>Note: ${esc(r.warnings[0])}</small>` : ''} <button type="button" class="small" data-undo="${r.changeId}">Undo</button></li>`
-    : `<li class="todo">… Kept aside: ${esc(r.reason)}${r.text ? ` <small>(“${esc(r.text)}”)</small>` : ''}</li>`).join('')}</ul>`;
+  return `<ul class="result-list">${results.map((r) => {
+    if (r.ok) return `<li class="ok"><strong>✓ Done: ${esc(r.summary)}.</strong>${r.notice ? `<br>${esc(r.notice)}` : ''}${r.warnings?.length ? `<br><small>Note: ${esc(r.warnings[0])}</small>` : ''} <button type="button" class="small" data-undo="${r.changeId}">Undo</button></li>`;
+    return `<li class="todo"><strong>Not changed:</strong> ${esc(r.reason)}${r.text ? ` <small>(“${esc(r.text)}”)</small>` : ''}</li>`;
+  }).join('')}</ul>`;
 }

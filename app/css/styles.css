@@ -166,6 +166,8 @@ button.small { min-height: 44px; padding: 8px 14px; font-size: var(--fs-m); }
 .activity-text { flex: 1; min-width: 0; overflow-wrap: break-word; }
 .activity-name { font-size: var(--fs-card); font-weight: 500; line-height: 1.3; }
 .activity-meta { font-size: var(--fs-s); line-height: 1.35; margin-top: 2px; }
+/* A weekly activity moved for this week only (shown in the week grid too, where other details are hidden). */
+.moved-note { font-size: var(--fs-s); line-height: 1.3; margin-top: 2px; color: var(--muted, inherit); }
 .activity-controls { display: flex; flex: 0 0 auto; margin: -6px -8px 0 0; }
 .activity-controls button { min-width: 40px; min-height: 40px; padding: 0; border: 0; background: transparent; color: inherit; font-size: var(--fs-l); line-height: 1; opacity: .75; }
 .fixed-lock { opacity: .8; }
@@ -305,6 +307,7 @@ body[data-theme="dim"] .steps li { background: #0000002e; }
 .result-list li.ok { background: var(--easy); color: var(--easy-ink); }
 .result-list li.todo { background: var(--mod); color: var(--mod-ink); }
 .result-list li.undone { opacity: .65; }
+.alert .keep-day { margin-left: 8px; }
 .result-list li button { margin-left: 6px; vertical-align: middle; }
 .note-card { border-radius: 12px; padding: 14px; margin: 10px 0; background: var(--surface); }
 .note-head { display: flex; justify-content: space-between; gap: 8px; align-items: center; margin-bottom: 8px; }

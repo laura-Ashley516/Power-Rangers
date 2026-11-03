@@ -9,7 +9,7 @@ import { $, esc } from './ui-kit.js';
 export const guideSteps = () => [
   { title: 'Your week.', text: 'The planner opens on your week. Each day is a column; Morning, Afternoon and Evening are the rows. The bar under each day shows how much energy it uses (for example 4½ of 5½).' },
   { title: 'Today.', text: 'Tap “Today” to see only what is now and what is next. Under each activity, “Remember” lists what to bring or do.' },
-  { title: 'Add an activity.', text: 'Above the calendar, the “My activities” box holds your usual activities. Drag one into a day (with a finger: press for a moment, then move). Or tap it, then tap the day. Fixed routines (with a small lock) stay where they are.' },
+  { title: 'Add an activity.', text: 'Above the calendar, the “My activities” box holds your usual activities. Drag one into a day (with a finger: press for a moment, then move). Or tap it, then tap the day. Activities marked “every week” (two arrows in a circle) come back to the same place every week; if you move or cancel one, it is for that week only.' },
   { title: 'Move or remove.', text: 'Drag an activity to another day. Or tap it: you can choose a new day or remove it. “Undo” at the top puts things back.' },
   { title: 'Later this week.', text: 'Things to do when there is energy wait at the bottom of the week. Drag one onto a day when ready.' },
   { title: 'Energy colours.', text: '□ Easy (green) · ● Moderate (yellow) · ◇ High (red) · ◠ Rest. A short note appears when a day has more than your rules allow. Under “More”, “Suggest a lighter week” offers moves; nothing changes until you choose.' },
