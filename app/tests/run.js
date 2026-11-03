@@ -49,6 +49,9 @@ check('new week: a cancelled weekly activity comes back, once', nw.schedule.Thur
 check('undo of a cancel does not bring it back twice', startNewWeek(applyChange(r.state, r.undo).state).schedule.Thursday.Morning.filter((a) => a.name === 'Physiotherapy').length === 1);
 const addW = applyChange(st, { type: 'add', day: 'Sunday', period: 'Evening', item: { id: 'w9', name: 'Choir', energy: 'green', fixed: true } });
 check('undoing the add of a weekly activity does not bring it back next week', !startNewWeek(applyChange(addW.state, { ...addW.undo, force: true }).state).schedule.Sunday.Evening.some((a) => a.name === 'Choir'));
+const newWeekly = applyChange(st, { type: 'add', day: 'Monday', period: 'Evening', libraryItem: { id: 'lib-yoga', name: 'Yoga', energy: 'green', fixed: true }, item: { id: 'y1', activityId: 'lib-yoga', name: 'Yoga', energy: 'green', fixed: true } });
+check('a new activity set to "Repeat every week" says so and is in My activities', newWeekly.ok && /repeats every week/.test(newWeekly.message) && newWeekly.state.library.some((x) => x.id === 'lib-yoga' && x.fixed));
+check('it comes back next week in the same place', startNewWeek(newWeekly.state).schedule.Monday.Evening.some((x) => x.name === 'Yoga'));
 const oneOff = applyChange(st, { type: 'move', id: 's2', toDay: 'Friday', toPeriod: 'Morning' });
 check('new week: one-off activities stay where they are', findItem(startNewWeek(oneOff.state).schedule, 's2').day === 'Friday');
 r = applyChange(st, { type: 'move', id: 's2', toDay: 'Friday', toPeriod: 'Morning' });
@@ -144,6 +147,9 @@ check('the box is always visible (not hidden)', !!box && !/class="[^"]*\bhidden\
 check('the week screen opens first', /<section id="weeklyView" class="view"/.test(html) && /<section id="todayView" class="view hidden"/.test(html));
 check('drag code is present (mouse, finger, pen)', mainJs.includes("addEventListener('pointerdown'") && mainJs.includes('function dropOn') && mainJs.includes('startDrag'));
 check('tap-then-tap alternative is present', mainJs.includes('placeInto(ctx.placing.kind') && weekJs.includes('export function startPlacing'));
+const libJs = readFileSync(new URL('../js/ui-library.js', import.meta.url), 'utf8');
+const newForm = libJs.slice(libJs.indexOf('export function createAndScheduleActivity'), libJs.indexOf('export function openQuickAdd'));
+check('"New activity" on the week offers "Repeat every week", unticked', newForm.includes('${repeatField(false)}'));
 check('library tiles, leftovers and week cards (weekly ones too) can be dragged', weekJs.includes("const draggable = ['library', 'leftover', 'scheduled'].includes(kind);"));
 
 // ---------- Parser ----------

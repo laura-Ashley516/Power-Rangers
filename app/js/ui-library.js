@@ -21,6 +21,9 @@ export function scheduleFromLibrary(activityId, day, period) { placeInto('librar
 
 const whenFields = (day, period) => `<div class="row" style="margin-top:12px"><div class="field"><label for="fDay">Day</label><select id="fDay" name="day">${days().map((d) => `<option ${d === day ? 'selected' : ''}>${d}</option>`).join('')}<option value="">Later this week</option></select></div><div class="field"><label for="fPeriod">Time of day</label><select id="fPeriod" name="period">${PERIODS.map((p) => `<option ${p === period ? 'selected' : ''}>${p}</option>`).join('')}</select></div></div>`;
 
+// "Repeat every week": offered when she creates an activity (not when she adds one she already has).
+const repeatField = (on) => `<div class="setting-row" style="margin-top:12px"><label for="fFixed"><strong>Repeat every week</strong><p class="muted">It comes back to the same place every week. You can still move it for one week.</p></label><input id="fFixed" name="fixed" type="checkbox" ${on ? 'checked' : ''} style="width:24px;height:24px"></div>`;
+
 const detailFields = (a) => `<div class="row" style="margin-top:12px"><div class="field"><label for="fDuration">About how long (minutes)</label><input id="fDuration" name="duration" type="number" min="5" max="600" step="5" value="${a.duration || 30}"></div></div>
   <div class="field" style="margin-top:12px"><label for="fSteps">Steps to remember (optional, one per line)</label><textarea id="fSteps" name="steps" placeholder="e.g. Health card&#10;List of questions">${esc((a.steps || []).join('\n'))}</textarea><span class="hint">Shown as a checklist on the Today screen.</span></div>
   <div class="field" style="margin-top:12px"><label for="fNote">Note (optional)</label><input id="fNote" name="note" maxlength="120" value="${esc(a.note || '')}"></div>
@@ -43,7 +46,7 @@ export function activityForm(existing = null) {
     <div class="field"><label for="fName">Name</label><input id="fName" name="name" required maxlength="60" value="${esc(a.name)}" placeholder="e.g. Medical appointment"></div>
     <div style="margin-top:12px">${energyPicker('energy', a.energy)}</div>
     ${detailFields(a)}
-    <div class="setting-row"><label for="fFixed"><strong>Every week</strong><p class="muted">It comes back to the same place every week. You can still move it for one week.</p></label><input id="fFixed" name="fixed" type="checkbox" ${a.fixed ? 'checked' : ''} style="width:24px;height:24px"></div>`, (fd) => {
+    ${repeatField(a.fixed)}`, (fd) => {
     const name = String(fd.get('name') || '').trim();
     if (!name) { toast('Please write a name.'); return false; }
     const next = { ...(existing || {}), id: existing?.id || uid(), name, energy: fd.get('energy') || 'green', fixed: fd.has('fixed'), ...readDetails(fd) };
@@ -68,10 +71,12 @@ export function createAndScheduleActivity(day = days()[0], period = 'Morning') {
     <div class="field"><label for="fName">Name</label><input id="fName" name="name" required maxlength="60" placeholder="e.g. Water the plants"></div>
     <div style="margin-top:12px">${energyPicker('energy', 'green')}</div>
     ${whenFields(day, period)}
+    ${repeatField(false)}
     <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700;padding:6px 0">More (time, steps, note)</summary>${detailFields({ reminder: true })}</details>`, (fd) => {
     const name = String(fd.get('name') || '').trim();
     if (!name) { toast('Please write a name.'); return false; }
-    const activity = { id: uid(), name, energy: fd.get('energy') || 'green', fixed: false, ...readDetails(fd) };
+    if (fd.has('fixed') && !fd.get('day')) { toast('Choose a day for an activity that repeats every week.'); return false; }
+    const activity = { id: uid(), name, energy: fd.get('energy') || 'green', fixed: fd.has('fixed'), ...readDetails(fd) };
     const item = { ...activity, id: uid(), activityId: activity.id };
     if (!fd.get('day')) {
       commit({ ...ctx.state, library: [...ctx.state.library, activity] });

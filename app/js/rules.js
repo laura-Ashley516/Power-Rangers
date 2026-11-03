@@ -81,7 +81,8 @@ export function applyChange(state, change) {
     const item = { duration: 30, fixed: false, reminder: true, energy: 'green', ...change.item, id: change.item.id || uid() };
     s[day][period].push(item);
     forget(next, item.id);
-    return done(next, `${item.name} added to ${where(day, period)}.`, [day], { type: 'remove', id: item.id, force: true }, item.id);
+    return done(next, `${item.name} added to ${where(day, period)}.`, [day], { type: 'remove', id: item.id, force: true }, item.id,
+      item.fixed && change.libraryItem ? 'It repeats every week.' : '');
   }
 
   if (change.type === 'move') {
