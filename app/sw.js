@@ -1,12 +1,13 @@
 // Service worker: offline-first.
 // - Keeps the app's own files on the device, so the planner opens without internet.
 // - Keeps the speech library (from jsDelivr) too; the Whisper model files are cached by the library itself.
-// - Updates: a new version installs in the background and is used the next time the planner is opened.
+// - Updates: a new version installs in the background; main.js switches to it when she opens or leaves
+//   the planner (never in the middle of something).
 //   Change CACHE when you publish a new version.
 //
 // Track: B - Data + device
 
-const CACHE = 'pwr-app-0.8.4';
+const CACHE = 'pwr-app-0.8.5';
 const RUNTIME = 'pwr-runtime';
 const APP_FILES = [
   './', './index.html', './manifest.json', './css/styles.css', './css/fonts.css',
@@ -21,10 +22,10 @@ const APP_FILES = [
 self.addEventListener('install', (event) => {
   // cache: 'reload' = always fetch fresh files from the network, never an older copy the browser kept.
   event.waitUntil(caches.open(CACHE).then((c) => c.addAll(APP_FILES.map((u) => new Request(u, { cache: 'reload' })))));
-  // No skipWaiting(): the new version waits until the planner is closed, so nothing changes mid-use.
+  // No skipWaiting() here: main.js chooses the moment (see the update code there).
 });
 
-// The page's "Use it now" button asks the waiting version to take over.
+// main.js asks the waiting version to take over when the moment is right.
 self.addEventListener('message', (event) => { if (event.data === 'SKIP_WAITING') self.skipWaiting(); });
 
 self.addEventListener('activate', (event) => {

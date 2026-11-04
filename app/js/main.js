@@ -327,31 +327,49 @@ const noSW = new URLSearchParams(location.search).has('nosw');
 if ('serviceWorker' in navigator) {
   if (noSW) navigator.serviceWorker.getRegistrations().then((rs) => rs.forEach((r) => r.unregister()));
   else if (location.protocol === 'https:' || location.hostname === 'localhost' || location.hostname === '127.0.0.1') {
+    // Updates install in the background and switch over on their own, never in the middle of something:
+    //  - when the planner has just been opened (or brought back) and she has not touched it yet, or
+    //  - when she leaves the planner (screen hidden),
+    // and never while a window (a form, a voice recording) is open. Team decision, Nov 3 2026.
     let reloading = false;
-    // A new version is waiting: offer a button (nothing changes until the user chooses it,
-    // otherwise it is used the next time the planner is opened).
-    const offerUpdate = (reg) => {
+    let touched = false; // has she used the page since it was opened or brought back?
+    ['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, () => { touched = true; }, { capture: true, passive: true }));
+    const busy = () => !!$('modalRoot')?.innerHTML;
+    const applyUpdate = (reg, force = false) => {
       if (!reg.waiting || !navigator.serviceWorker.controller) return;
-      $('updateBar').classList.remove('hidden');
-      $('updateNowBtn').onclick = () => reg.waiting?.postMessage('SKIP_WAITING');
+      if (!force && busy()) return;
+      if (force || !touched || document.visibilityState === 'hidden') {
+        sessionStorage.setItem('pwr-updated', '1');
+        reg.waiting.postMessage('SKIP_WAITING');
+      }
     };
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       if (reloading) return;
       reloading = true;
       location.reload();
     });
+    if (sessionStorage.getItem('pwr-updated')) {
+      sessionStorage.removeItem('pwr-updated');
+      setTimeout(() => toast(`The planner was updated (version ${APP_VERSION}).`), 600);
+    }
     navigator.serviceWorker.register('./sw.js').then((reg) => {
-      offerUpdate(reg);
+      applyUpdate(reg);
       reg.addEventListener('updatefound', () => {
         const w = reg.installing;
-        w?.addEventListener('statechange', () => { if (w.state === 'installed') offerUpdate(reg); });
+        w?.addEventListener('statechange', () => { if (w.state === 'installed') applyUpdate(reg); });
+      });
+      // An iPad keeps the planner open for days: look for a new version each time she comes back to it.
+      document.addEventListener('visibilitychange', () => {
+        if (document.visibilityState === 'hidden') { applyUpdate(reg); return; }
+        touched = false;
+        reg.update().catch(() => { /* offline */ });
       });
       $('checkUpdateBtn').onclick = async () => {
         $('updateStatus').textContent = 'Checking…';
         try { await reg.update(); } catch (e) { /* offline */ }
         setTimeout(() => {
-          $('updateStatus').textContent = reg.waiting || reg.installing ? 'A new version is ready: use the button at the top.' : `You have the latest version (${APP_VERSION}).`;
-          offerUpdate(reg);
+          if (reg.waiting) { $('updateStatus').textContent = 'Updating…'; applyUpdate(reg, true); }
+          else $('updateStatus').textContent = reg.installing ? 'A new version is downloading; it will be used the next time you open the planner.' : `You have the latest version (${APP_VERSION}).`;
         }, 1500);
       };
     }).catch(() => { /* offline mode unavailable in this browser */ });

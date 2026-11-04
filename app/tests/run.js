@@ -150,6 +150,7 @@ check('tap-then-tap alternative is present', mainJs.includes('placeInto(ctx.plac
 const libJs = readFileSync(new URL('../js/ui-library.js', import.meta.url), 'utf8');
 const newForm = libJs.slice(libJs.indexOf('export function createAndScheduleActivity'), libJs.indexOf('export function openQuickAdd'));
 check('"New activity" on the week offers "Repeat every week", unticked', newForm.includes('${repeatField(false)}'));
+check('updates switch over on their own (no bar), never while a window is open', mainJs.includes("reg.waiting.postMessage('SKIP_WAITING')") && mainJs.includes('const busy = () =>') && !html.includes('updateBar'));
 check('library tiles, leftovers and week cards (weekly ones too) can be dragged', weekJs.includes("const draggable = ['library', 'leftover', 'scheduled'].includes(kind);"));
 
 // ---------- Parser ----------

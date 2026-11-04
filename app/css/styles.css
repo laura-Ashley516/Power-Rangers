@@ -335,7 +335,6 @@ body[data-theme="dim"] .steps li { background: #0000002e; }
 .toast span { flex: 1; }
 .toast button { min-height: 44px; padding: 6px 16px; background: var(--bg); color: var(--ink); border: 0; }
 .toast .toast-close { background: transparent; color: var(--bg); border: 1px solid currentColor; }
-.update-bar { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); display: flex; gap: 12px; align-items: center; background: var(--ink); color: var(--bg); padding: 10px 12px 10px 18px; border-radius: 12px; z-index: 35; max-width: 92vw; }
 .modal-backdrop { position: fixed; inset: 0; background: #1c1a1499; display: grid; place-items: center; padding: 16px; z-index: 50; }
 .modal { background: var(--surface); border-radius: 16px; padding: 24px; width: min(580px, 100%); max-height: 90vh; overflow: auto; }
 .modal h2 { margin-bottom: var(--gap); font-size: var(--fs-xl); }
@@ -358,7 +357,7 @@ body.dragging, body.dragging * { cursor: grabbing !important; user-select: none;
 @media print {
   @page { size: landscape; margin: 10mm; }
   html, body { background: #fff !important; }
-  body > .app, #modalRoot, #toast, .update-bar { display: none !important; }
+  body > .app, #modalRoot, #toast { display: none !important; }
   .print-area { display: block !important; color: #000; font: 11pt/1.35 -apple-system, "Segoe UI", sans-serif; }
   body.printing-day .print-week, body.printing-day .print-guide, body.printing-week .print-day, body.printing-week .print-guide, body.printing-guide .print-week, body.printing-guide .print-day { display: none !important; }
   .print-area h1 { font-size: 16pt; font-weight: 600; margin: 0 0 8px; }
