@@ -5,10 +5,10 @@
 
 import { APP_VERSION, PERIODS } from './config.js';
 import { ctx, commit, change, undo, onRender } from './context.js';
-import { load, save, fresh, requestPersistence, exportBackup, importBackup } from './store.js';
-import { $, toast, currentPeriodIndex, orderedDays, dateKey } from './ui-kit.js';
-import { startNewWeek } from './rules.js';
-import { renderWeek, renderAlerts, changeWeek, weekStart, openBalance, keepDay, openSplit, openAddLeftover, startPlacing, cancelPlacing, placeInto, openWeekMenu } from './ui-week.js';
+import { load, save, fresh, requestPersistence, exportBackup, importBackup, keepSafetyCopy, safetyCopies, readSafetyCopy } from './store.js';
+import { $, toast, currentPeriodIndex, orderedDays } from './ui-kit.js';
+import { openWeek } from './rules.js';
+import { renderWeek, renderAlerts, changeWeek, weekKey, openBalance, keepDay, openSplit, openAddLeftover, startPlacing, cancelPlacing, placeInto, openWeekMenu } from './ui-week.js';
 import { renderDaily } from './ui-daily.js';
 import { renderToday, addRest } from './ui-today.js';
 import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, openCardMenu, handleLibraryClick, renderQuietSettings, toggleQuiet } from './ui-library.js';
@@ -23,20 +23,23 @@ import { onNotesChanged } from './voice/notes.js';
 
 ctx.state = load();
 
-// A new week has started since the planner was last used: weekly activities moved or cancelled
-// last week go back to their usual place (rules.startNewWeek).
-let newWeekNotice = false;
-{
-  const thisWeek = dateKey(weekStart(0));
-  if (ctx.state.weekOf && ctx.state.weekOf < thisWeek) {
-    const s = ctx.state;
-    newWeekNotice = (s.skipped || []).length > 0 || orderedDays().some((d) => PERIODS.some((p) => s.schedule[d][p].some((a) => a.fixed && a.home)));
-    ctx.state = startNewWeek(s);
-  }
-  if (ctx.state.weekOf !== thisWeek) { ctx.state.weekOf = thisWeek; save(ctx.state); }
+// Always open on the real current week. The week saved on screen is kept under its own date (rules.openWeek):
+// before v0.9 it was the week of the last visit (weekOf). A week never opened starts with the weekly activities.
+function toThisWeek(state) {
+  const key = weekKey(0);
+  if (!state.shownWeek) state.shownWeek = state.weekOf || key;
+  delete state.weekOf;
+  const newWeek = state.shownWeek < key && !state.weeks?.[key];
+  const next = openWeek(state, key);
+  return { state: next, newWeek };
 }
-if (newWeekNotice) setTimeout(() => toast('A new week: your weekly activities are back in their usual places.', 5000), 800);
-ctx.weekSchedules = { 0: JSON.parse(JSON.stringify(ctx.state.schedule)) };
+{
+  const { state, newWeek } = toThisWeek(ctx.state);
+  ctx.state = state;
+  save(ctx.state);
+  keepSafetyCopy(ctx.state, 'daily copy', { daily: true }); // one a day, before today's changes
+  if (newWeek && Object.keys(state.series || {}).length) setTimeout(() => toast('A new week: your weekly activities are in their usual places.', 5000), 800);
+}
 
 // ---------- drawing ----------
 
@@ -95,6 +98,7 @@ export function showView(name) {
   if (name === 'weekly') renderWeek();
   if (name === 'voice') renderVoiceView();
   if (name === 'device') { renderDemoPanel(); renderConnection(); }
+  if (name === 'settings') renderSafety();
   window.scrollTo({ top: 0 });
 }
 
@@ -124,7 +128,11 @@ $('fontSelect').onchange = (e) => { setting('font', e.target.value); toast('Font
 $('spacingSelect').onchange = (e) => { setting('spacing', e.target.value); toast('Spacing saved.'); };
 
 $('themeSelect').onchange = (e) => { setting('theme', e.target.value); toast('Colours saved.'); };
-$('weekStartSelect').onchange = (e) => { setting('weekStart', e.target.value); toast(`The week now starts on ${e.target.value}.`); };
+$('weekStartSelect').onchange = (e) => {
+  setting('weekStart', e.target.value);
+  commit({ ...ctx.state, shownWeek: weekKey(ctx.weekOffset) }); // the week on screen keeps its activities under its new first day
+  toast(`The week now starts on ${e.target.value}.`);
+};
 $('contrastToggle').onclick = () => setting('contrast', !ctx.state.settings.contrast);
 document.addEventListener('change', (e) => { const q = e.target.closest?.('[data-quiet]'); if (q) toggleQuiet(q.dataset.quiet, q.checked); });
 document.querySelectorAll('input[name=textSize]').forEach((r) => (r.onchange = () => { setting('size', r.value); }));
@@ -136,23 +144,53 @@ $('modelSelect').onchange = (e) => { setting('speechModel', e.target.value); toa
 $('preloadModelBtn').onclick = () => preload(ctx.state.settings.speechModel);
 $('vibrateBtn').onclick = () => { if ('vibrate' in navigator) { navigator.vibrate(180); toast('Vibration test requested.'); } else toast('Vibration is not supported by this browser.'); };
 $('resetBtn').onclick = () => {
-  if (!confirm('Start again with the example week? Your current week and activities are replaced. (Save a backup first if unsure.)')) return;
+  if (!confirm('Start again with the example week? Your current week and activities are replaced. (A safety copy is kept.)')) return;
+  keepSafetyCopy(ctx.state, 'before a reset');
   sessionStorage.clear();
   const keep = ctx.state.settings;
   ctx.weekOffset = 0; ctx.undoStack = []; ctx.placing = null;
   const state = fresh();
   state.settings = { ...state.settings, ...keep };
-  ctx.weekSchedules = { 0: JSON.parse(JSON.stringify(state.schedule)) };
+  state.shownWeek = weekKey(0);
   commit(state);
   toast('Planner reset to the example week.');
 };
+// Settings → Keep my schedule safe: the safety copies (store.js) and the Home Screen advice.
+function renderSafety() {
+  const copies = safetyCopies();
+  const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  $('copyList').innerHTML = copies.length ? copies.map((c) => `<div class="copy-row"><span>${when(c.at)} · ${c.reason}</span><button class="small" data-restore-copy="${c.id}">Restore</button></div>`).join('')
+    : '<p class="muted">The first copy is made today.</p>';
+  // On iPad a Home Screen app has its own storage, separate from Safari: moving there needs a backup file,
+  // so this is advice to follow with a helper, never a pop-up (her week would look empty in the new icon).
+  const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+  const standalone = navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
+  $('homeScreenRow').classList.toggle('hidden', !ios);
+  $('homeScreenText').textContent = standalone
+    ? 'The planner is open from its Home Screen icon: the iPad keeps your week safely. Always open it from this icon.'
+    : 'Safari can clear a website after a long time without use. To keep your week safe, with a helper: 1. Save a backup (above). 2. Tap Share, then “Add to Home Screen”. 3. Open the new icon and Load the backup. Then always use the icon.';
+}
+
+$('copyList').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-restore-copy]');
+  if (!b) return;
+  const state = readSafetyCopy(b.dataset.restoreCopy);
+  if (!state) { toast('This copy could not be opened.'); return; }
+  if (!confirm('Go back to this copy? What you changed since then is replaced. A copy of the planner as it is now is kept, so you can come back to it.')) return;
+  keepSafetyCopy(ctx.state, 'before a restore');
+  ctx.weekOffset = 0; ctx.undoStack = []; ctx.placing = null;
+  commit(toThisWeek(state).state);
+  renderSafety();
+  toast('Planner restored from the safety copy.');
+});
+
 $('exportBtn').onclick = () => { exportBackup(ctx.state); toast('Backup file created.'); };
 $('importInput').onchange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
     const state = await importBackup(file);
-    if (confirm('Replace the planner with this backup?')) { ctx.weekSchedules = { 0: JSON.parse(JSON.stringify(state.schedule)) }; ctx.weekOffset = 0; commit(state); toast('Backup loaded.'); }
+    if (confirm('Replace the planner with this backup?')) { keepSafetyCopy(ctx.state, 'before loading a backup'); ctx.weekOffset = 0; ctx.undoStack = []; commit(toThisWeek(state).state); toast('Backup loaded.'); }
   } catch (err) { toast(err.message); }
   e.target.value = '';
 };

@@ -6,7 +6,7 @@
 
 import { DAYS, PERIODS, ENERGY } from './config.js';
 import { ctx, commit, change } from './context.js';
-import { checkDay, suggestBalance, splitChanges, daySignature, resetWeekly } from './rules.js';
+import { checkDay, suggestBalance, splitChanges, daySignature, openWeek, weekFromSeries } from './rules.js';
 import { uid } from './store.js';
 import { $, esc, shape, energyLabel, toast, showModal, showPanelModal, closeModal, orderedDays, dateKey, energyPicker, WEEKLY, CARD_ICON, QUIET_ICON } from './ui-kit.js';
 import { isAppointment, isQuiet } from './store.js';
@@ -47,14 +47,17 @@ export function budgetHtml(check, { label = true } = {}) {
 // One activity card. kind: 'scheduled' (in a day), 'library' (a tile to drag in), 'leftover' (Later this week).
 export function renderCard(a, day, period, index, kind = 'scheduled') {
   const energy = ENERGY[a.energy] ? a.energy : 'green';
-  const lock = a.fixed && kind !== 'library';
+  const lock = kind !== 'library' && !!(a.seriesId && ctx.state.series?.[a.seriesId]); // a weekly card
   const draggable = ['library', 'leftover', 'scheduled'].includes(kind); // weekly activities too (moved for this week only)
   const isNew = a.voiceNew ? '<span class="new-mark" title="Added from a voice note">new</span>' : '';
-  const label = `${a.name}, ${energyLabel(energy)}${lock ? ', every week' : ''}${lock && a.home ? `, moved this week (usually ${a.home.day} ${a.home.period.toLowerCase()})` : ''}${a.voiceNew ? ', added from a voice note' : ''}`;
+  // A weekly card somewhere else than its usual place has been moved for this week only.
+  const usual = lock && a.seriesId ? ctx.state.series?.[a.seriesId] : null;
+  const movedThisWeek = kind === 'scheduled' && usual && (usual.day !== day || usual.period !== period);
+  const label = `${a.name}, ${energyLabel(energy)}${lock ? ', every week' : ''}${movedThisWeek ? `, moved this week (usually ${usual.day} ${usual.period.toLowerCase()})` : ''}${a.voiceNew ? ', added from a voice note' : ''}`;
   const meta = [a.duration ? `<span class="dur">${a.duration} min</span>` : '', a.steps?.length && kind !== 'library' ? `<span class="dur">☑ ${a.steps.length} steps</span>` : ''].filter(Boolean).join(' ');
   const controls = kind === 'leftover' ? `<div class="activity-controls"><button class="small" data-action="drop-leftover" title="Remove" aria-label="Remove ${esc(a.name)} from later">×</button></div>` : '';
   const pos = kind === 'scheduled' ? `data-day="${day}" data-period="${period}" data-index="${index}"` : '';
-  return `<div class="activity-card ${energy}${lock ? ' fixed' : ''}${a.voiceNew ? ' voice-new' : ''}${ctx.placing?.id === a.id ? ' selected' : ''}" tabindex="0" role="button" aria-label="${esc(label)}" draggable="${draggable}" data-card-type="${kind}" data-id="${esc(a.id)}" ${pos}><div class="activity-text"><div class="activity-name"><span class="activity-shape" aria-hidden="true">${shape(energy)}</span> ${esc(a.name)}${lock ? ` <span class="fixed-lock" title="Every week">${WEEKLY}</span>` : ''}${kind !== 'library' && isAppointment(a, ctx.state.library) && (a.questions?.length || a.afterNote) ? ` <span class="fixed-lock" title="Appointment card ready">${CARD_ICON}</span>` : ''}${kind !== 'library' && isQuiet(a, ctx.state.library) ? ` <span class="fixed-lock" title="Quiet time: the device stays silent">${QUIET_ICON}</span>` : ''} ${isNew}</div>${meta ? `<div class="activity-meta">${meta}</div>` : ''}${lock && a.home ? '<div class="moved-note">This week only</div>' : ''}</div>${controls}</div>`;
+  return `<div class="activity-card ${energy}${lock ? ' fixed' : ''}${a.voiceNew ? ' voice-new' : ''}${ctx.placing?.id === a.id ? ' selected' : ''}" tabindex="0" role="button" aria-label="${esc(label)}" draggable="${draggable}" data-card-type="${kind}" data-id="${esc(a.id)}" ${pos}><div class="activity-text"><div class="activity-name"><span class="activity-shape" aria-hidden="true">${shape(energy)}</span> ${esc(a.name)}${lock ? ` <span class="fixed-lock" title="Every week">${WEEKLY}</span>` : ''}${kind !== 'library' && isAppointment(a, ctx.state.library) && (a.questions?.length || a.afterNote) ? ` <span class="fixed-lock" title="Appointment card ready">${CARD_ICON}</span>` : ''}${kind !== 'library' && isQuiet(a, ctx.state.library) ? ` <span class="fixed-lock" title="Quiet time: the device stays silent">${QUIET_ICON}</span>` : ''} ${isNew}</div>${meta ? `<div class="activity-meta">${meta}</div>` : ''}${movedThisWeek ? '<div class="moved-note">This week only</div>' : ''}</div>${controls}</div>`;
 }
 
 // The calendar is a grid, like her paper calendar: one column per day with a clear line between days,
@@ -123,11 +126,12 @@ export function startPlacing(kind, id) {
 export function cancelPlacing() { ctx.placing = null; renderWeek(); }
 
 // Put a library activity or a leftover into a day (drag & drop, or tap-to-place).
-export function placeInto(kind, id, day, period) {
+export function placeInto(kind, id, day, period, { everyWeek = false } = {}) {
   if (kind === 'leftover') return change({ type: 'place', id, toDay: day, toPeriod: period });
   const a = ctx.state.library.find((x) => x.id === id);
   if (!a) return null;
-  return change({ type: 'add', day, period, item: { ...a, id: uid(), activityId: a.id, steps: [...(a.steps || [])] } });
+  // From "My activities": only this week, unless she ticks "Repeat every week" (quick add) or taps the card later.
+  return change({ type: 'add', day, period, everyWeek, item: { ...a, fixed: false, id: uid(), activityId: a.id, steps: [...(a.steps || [])] } });
 }
 
 // ---------- energy messages ----------
@@ -160,17 +164,22 @@ export function renderAlerts() {
   root.innerHTML = `<div class="alert${over.length ? '' : ' info'}"><div><strong>${over.length ? 'More than your energy rules' : 'A note on this week'}</strong>${lines}</div>${over.length ? '<button data-open-balance>Suggest moves</button>' : ''}<button data-alert-dismiss="alerts">Hide</button></div>`;
 }
 
+// The key of a week: the date of its first day (Sunday or Monday, from Settings).
+export const weekKey = (offset = ctx.weekOffset) => dateKey(weekStart(offset));
+
+// Any week's schedule, without opening it: saved, on screen, or (never opened) its weekly activities.
+export function scheduleFor(offset) {
+  const key = weekKey(offset);
+  if (key === ctx.state.shownWeek) return ctx.state.schedule;
+  return ctx.state.weeks?.[key] || weekFromSeries(ctx.state.series);
+}
+
+// Every week is saved on its own (rules.openWeek); a week never opened starts with the weekly activities only.
 export function changeWeek(next) {
-  ctx.weekSchedules[ctx.weekOffset] = JSON.parse(JSON.stringify(ctx.state.schedule));
   ctx.weekOffset = next;
-  if (!ctx.weekSchedules[ctx.weekOffset]) {
-    // A week you have not opened yet starts from this one, with weekly activities back in their usual place.
-    const copy = resetWeekly(ctx.state.schedule, ctx.state.skipped);
-    DAYS.forEach((day) => PERIODS.forEach((period) => copy[day][period].forEach((a) => { a.id = uid(); delete a.voiceNew; })));
-    ctx.weekSchedules[ctx.weekOffset] = copy;
-  }
   ctx.selectedActivity = null;
-  commit({ ...ctx.state, schedule: JSON.parse(JSON.stringify(ctx.weekSchedules[ctx.weekOffset])) });
+  ctx.undoStack = []; // Undo stays inside the week it was done in
+  commit(openWeek(ctx.state, weekKey(next)));
   const w = ctx.weekOffset;
   toast(w === 0 ? 'Showing this week.' : w < 0 ? `${Math.abs(w)} week${w < -1 ? 's' : ''} ago` : `${w} week${w > 1 ? 's' : ''} ahead`);
 }
@@ -208,11 +217,10 @@ export function openSplit() {
 }
 
 export function repeatLastWeek() {
-  if (!confirm('Copy this week to next week? You can still change next week afterwards.')) return;
-  const clone = resetWeekly(ctx.state.schedule, ctx.state.skipped);
-  DAYS.forEach((d) => PERIODS.forEach((p) => clone[d][p].forEach((a) => { a.id = uid(); delete a.voiceNew; })));
-  ctx.weekSchedules[ctx.weekOffset] = JSON.parse(JSON.stringify(ctx.state.schedule));
-  ctx.weekSchedules[ctx.weekOffset + 1] = clone;
+  if (!confirm('Copy this week to next week, one-time activities too? What is planned next week now is replaced. You can still change it afterwards.')) return;
+  const copy = JSON.parse(JSON.stringify(ctx.state.schedule));
+  DAYS.forEach((d) => PERIODS.forEach((p) => copy[d][p].forEach((a) => { a.id = uid(); delete a.voiceNew; })));
+  commit({ ...ctx.state, weeks: { ...(ctx.state.weeks || {}), [weekKey(ctx.weekOffset + 1)]: copy } });
   changeWeek(ctx.weekOffset + 1);
   toast('Next week starts as a copy of this week.');
 }

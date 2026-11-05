@@ -6,7 +6,7 @@
 // Track: C - Rules + voice
 
 import { DAYS, PERIODS, ENERGY, DAY_LOAD_LIMIT, REST_AFTER_RED_MIN } from './config.js';
-import { uid } from './store.js';
+import { uid, emptySchedule, seriesTemplate } from './store.js';
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
 const items = (schedule, day) => PERIODS.flatMap((p) => schedule[day]?.[p] || []);
@@ -46,20 +46,85 @@ export function findItem(schedule, id) {
 const where = (day, period) => `${day} ${period.toLowerCase()}`;
 const fail = (state, message) => ({ ok: false, state, message, warnings: [] });
 
-// Weekly activities (fixed: true) come back to their usual place every week, but she can change one week
-// freely (drag, menu or voice), with no question asked: the message says it is for this week only.
-//   item.home     = its usual { day, period }, kept while it is moved somewhere else this week
-//   state.skipped = weekly activities cancelled (or set aside) this week: [{ item, day, period }]
-// startNewWeek() puts everything back. Client feedback, Nov 3 2026.
-const usual = (item, day, period) => item.home || { day, period };
-const forget = (next, id) => { next.skipped = (next.skipped || []).filter((x) => x.item.id !== id); };
-const skip = (next, item, day, period) => {
-  const h = usual(item, day, period);
-  const copy = { ...item };
-  delete copy.home;
-  next.skipped = [...(next.skipped || []).filter((x) => x.item.id !== item.id), { item: copy, day: h.day, period: h.period }];
-  return h;
+// ---------- weekly activities ("every week") ----------
+// Every week is saved on its own: state.schedule is the week on screen (state.shownWeek = the date of its first
+// day), state.weeks holds the others. A weekly activity is a series: state.series[sid] = { item, day, period },
+// its usual place. Each week holds its own copy (card.seriesId, card.fixed = true), so:
+//   - "this week only" (the default for drag, menu and voice) changes one week;
+//   - "every week" changes the series and the weeks already planned after this one;
+//   - a week opened for the first time starts with the weekly activities only.
+// No question is asked; the message says which it was. Client feedback, Nov 3 and Nov 4 2026.
+const isWeekly = (next, item) => !!(item?.seriesId && next.series?.[item.seriesId]);
+const laterWeeks = (next) => Object.keys(next.weeks || {}).filter((k) => k > (next.shownWeek || '')).sort();
+const findSeriesCard = (schedule, sid, day, period) => {
+  for (const d of day ? [day] : DAYS) for (const p of period ? [period] : PERIODS) {
+    const item = (schedule[d]?.[p] || []).find((x) => x.seriesId === sid);
+    if (item) return { day: d, period: p, item };
+  }
+  return null;
 };
+const pull = (schedule, day, period, id) => { schedule[day][period] = schedule[day][period].filter((x) => x.id !== id); };
+
+// Start a series from a card; the weeks already planned after this one get it too. A one-time copy of the same
+// activity already in that place there becomes the weekly one (no second card: she often added it by hand first).
+const sameActivity = (a, b) => (a.activityId && a.activityId === b.activityId) || a.name === b.name;
+function startSeries(next, item, day, period, sid = uid()) {
+  next.series = { ...(next.series || {}), [sid]: { item: seriesTemplate(item), day, period } };
+  item.seriesId = sid;
+  item.fixed = true;
+  for (const k of laterWeeks(next)) {
+    if (findSeriesCard(next.weeks[k], sid)) continue;
+    const slot = next.weeks[k][day][period];
+    const oneTime = slot.find((x) => !x.seriesId && sameActivity(x, item));
+    if (oneTime) Object.assign(oneTime, { seriesId: sid, fixed: true, adopted: true });
+    else slot.push({ ...seriesTemplate(item), id: uid(), seriesId: sid, fixed: true });
+  }
+  return sid;
+}
+
+// End a series: the cards of the weeks after this one go too. Returns them, so it can be undone.
+function endSeries(next, sid) {
+  const removed = [];
+  for (const k of laterWeeks(next)) {
+    const f = findSeriesCard(next.weeks[k], sid);
+    if (f?.item.adopted) { delete f.item.seriesId; delete f.item.adopted; f.item.fixed = false; removed.push({ week: k, ...f, adopted: true }); }
+    else if (f) { pull(next.weeks[k], f.day, f.period, f.item.id); removed.push({ week: k, ...f }); }
+  }
+  next.series = { ...next.series };
+  delete next.series[sid];
+  return removed;
+}
+
+// A new usual place: the weeks after this one move their card if it was still in the old usual place.
+function moveSeries(next, sid, day, period) {
+  const old = next.series[sid];
+  for (const k of laterWeeks(next)) {
+    const f = findSeriesCard(next.weeks[k], sid, old.day, old.period);
+    if (f) { pull(next.weeks[k], f.day, f.period, f.item.id); next.weeks[k][day][period].push(f.item); }
+  }
+  next.series = { ...next.series, [sid]: { ...old, day, period } };
+}
+
+// A week that was never opened: its weekly activities, each in its usual place.
+export function weekFromSeries(series = {}) {
+  const s = emptySchedule();
+  Object.entries(series).forEach(([sid, x]) => {
+    if (s[x.day]?.[x.period]) s[x.day][x.period].push({ ...clone(x.item), id: uid(), seriesId: sid, fixed: true });
+  });
+  return s;
+}
+
+// Show the week that starts on `key`: the week on screen is saved in state.weeks first.
+export function openWeek(state, key) {
+  if (state.shownWeek === key) return state;
+  const next = clone(state);
+  next.weeks = next.weeks || {};
+  if (next.shownWeek) next.weeks[next.shownWeek] = next.schedule;
+  next.schedule = next.weeks[key] || weekFromSeries(next.series);
+  delete next.weeks[key];
+  next.shownWeek = key;
+  return next;
+}
 
 // change:
 //   { type:'add', day, period, item:{name, energy, duration, fixed, reminder, activityId?, id?}, libraryItem? }
@@ -68,7 +133,10 @@ const skip = (next, item, day, period) => {
 //   { type:'park', id }                      scheduled activity → leftovers tray ("later this week")
 //   { type:'place', id, toDay, toPeriod }    leftover → a day
 //   { type:'addLeftover', item }  /  { type:'dropLeftover', id }
-//   { type:'update', id, fields }            change details of one scheduled activity (questions, notes, quiet…)
+//   { type:'update', id, fields }            change details of one scheduled activity (questions, notes, energy…)
+//   { type:'setWeekly', id, on }             make a card weekly in its place, or stop it coming back
+//   { type:'batch', changes:[…] }            several changes as one (one Undo)
+//   everyWeek: true on add / move / remove / update = for every week from now on (see "weekly activities")
 // Returns { ok, state (new object), message, warnings, undo (a change that reverses this one), itemId }
 export function applyChange(state, change) {
   const next = clone(state);
@@ -79,10 +147,16 @@ export function applyChange(state, change) {
     if (!DAYS.includes(day) || !PERIODS.includes(period)) return fail(state, 'I need a day and a time of day.');
     if (change.libraryItem && !next.library.some((a) => a.id === change.libraryItem.id)) next.library.push({ ...change.libraryItem });
     const item = { duration: 30, fixed: false, reminder: true, energy: 'green', ...change.item, id: change.item.id || uid() };
+    // A copy of a weekly activity stays weekly (e.g. undoing "remove for this week"); anything else starts as one-time.
+    if (!isWeekly(next, item)) { item.fixed = false; delete item.seriesId; }
     s[day][period].push(item);
-    forget(next, item.id);
+    if (change.everyWeek && !item.seriesId) {
+      startSeries(next, item, day, period);
+      return done(next, `${item.name} added to ${where(day, period)}.`, [day], { type: 'remove', id: item.id, everyWeek: true }, item.id,
+        `It comes back every week on ${where(day, period)}.`);
+    }
     return done(next, `${item.name} added to ${where(day, period)}.`, [day], { type: 'remove', id: item.id, force: true }, item.id,
-      item.fixed && change.libraryItem ? 'It repeats every week.' : '');
+      item.seriesId || change.silentNotice ? '' : 'Only this week. To repeat it every week, tap it.');
   }
 
   if (change.type === 'move') {
@@ -90,17 +164,28 @@ export function applyChange(state, change) {
     if (!found) return fail(state, 'That activity is no longer in the schedule.');
     const { day, period, item } = found;
     if (!DAYS.includes(change.toDay) || !PERIODS.includes(change.toPeriod)) return fail(state, 'I need a day and a time of day.');
-    if (day === change.toDay && period === change.toPeriod) return fail(state, `${item.name} is already on ${where(day, period)}.`);
-    s[day][period] = s[day][period].filter((x) => x.id !== item.id);
-    let notice = '';
-    if (item.fixed) {
-      const h = usual(item, day, period);
-      if (h.day === change.toDay && h.period === change.toPeriod) { delete item.home; notice = 'It is back in its usual place.'; }
-      else { item.home = h; notice = `For this week only: next week it is back on ${where(h.day, h.period)}.`; }
+    const to = { day: change.toDay, period: change.toPeriod };
+    const same = day === to.day && period === to.period;
+    // Already there this week, but "every week" can still make it the usual place (e.g. moved there last time).
+    const usualElsewhere = isWeekly(next, item) && (next.series[item.seriesId].day !== to.day || next.series[item.seriesId].period !== to.period);
+    if (same && !(change.everyWeek && usualElsewhere)) return fail(state, `${item.name} is already on ${where(day, period)}.`);
+    if (!same) {
+      s[day][period] = s[day][period].filter((x) => x.id !== item.id);
+      s[to.day][to.period].push(item);
     }
-    s[change.toDay][change.toPeriod].push(item);
-    return done(next, `Moved ${item.name} to ${where(change.toDay, change.toPeriod)}.`, [change.toDay],
-      { type: 'move', id: item.id, toDay: day, toPeriod: period }, item.id, notice);
+    const moved = same ? `${item.name} stays on ${where(to.day, to.period)}.` : `Moved ${item.name} to ${where(to.day, to.period)}.`;
+    if (!isWeekly(next, item)) return done(next, moved, [to.day], { type: 'move', id: item.id, toDay: day, toPeriod: period }, item.id);
+    const usual = next.series[item.seriesId];
+    if (change.everyWeek) {
+      const back = change.usual || to; // undo passes the old usual place
+      const before = { day: usual.day, period: usual.period };
+      moveSeries(next, item.seriesId, back.day, back.period);
+      return done(next, moved, [to.day], { type: 'move', id: item.id, toDay: day, toPeriod: period, everyWeek: true, usual: before }, item.id,
+        `Every week from now on: ${where(back.day, back.period)}.`);
+    }
+    const notice = usual.day === to.day && usual.period === to.period ? 'It is back in its usual place.'
+      : `For this week only: every other week it stays on ${where(usual.day, usual.period)}.`;
+    return done(next, moved, [to.day], { type: 'move', id: item.id, toDay: day, toPeriod: period }, item.id, notice);
   }
 
   if (change.type === 'remove') {
@@ -108,9 +193,16 @@ export function applyChange(state, change) {
     if (!found) return fail(state, 'That activity is no longer in the schedule.');
     const { day, period, item } = found;
     s[day][period] = s[day][period].filter((x) => x.id !== item.id);
-    if (item.fixed && !change.force) { // force = undoing an "add": nothing to bring back next week
-      skip(next, item, day, period);
-      return done(next, `${item.name} cancelled on ${where(day, period)}.`, [], { type: 'add', day, period, item: { ...item } }, item.id, 'For this week only: it comes back next week.');
+    if (isWeekly(next, item) && change.everyWeek) {
+      const sid = item.seriesId;
+      const series = clone(next.series[sid]);
+      const later = endSeries(next, sid);
+      return done(next, `${item.name} removed from every week.`, [], { type: 'restoreSeries', sid, series, card: { day, period, item: clone(item) }, later }, item.id,
+        'It will not come back.');
+    }
+    if (isWeekly(next, item)) {
+      return done(next, `${item.name} removed from ${where(day, period)}.`, [], { type: 'add', day, period, item: { ...item } }, item.id,
+        'For this week only: it comes back next week.');
     }
     return done(next, `${item.name} removed from ${where(day, period)}.`, [],
       { type: 'add', day, period, item: { ...item } }, item.id);
@@ -120,15 +212,28 @@ export function applyChange(state, change) {
     const found = findItem(s, change.id);
     if (!found) return fail(state, 'That activity is no longer in the schedule.');
     const { day, period, item } = found;
-    const allowed = ['questions', 'steps', 'afterNote', 'quiet', 'appointment', 'note'];
+    const allowed = ['questions', 'steps', 'afterNote', 'quiet', 'appointment', 'note', 'energy'];
+    if (change.fields?.energy !== undefined && !ENERGY[change.fields.energy]) return fail(state, 'Unknown energy level.');
     const before = {};
-    for (const k of Object.keys(change.fields || {})) {
-      if (!allowed.includes(k)) continue;
-      before[k] = item[k] === undefined ? null : clone(item[k]);
-      item[k] = change.fields[k] === null ? undefined : clone(change.fields[k]);
-    }
+    const set = (target) => {
+      for (const k of Object.keys(change.fields || {})) {
+        if (!allowed.includes(k)) continue;
+        target[k] = change.fields[k] === null ? undefined : clone(change.fields[k]);
+      }
+    };
+    for (const k of Object.keys(change.fields || {})) if (allowed.includes(k)) before[k] = item[k] === undefined ? null : clone(item[k]);
+    set(item);
     s[day][period] = s[day][period].map((x) => (x.id === item.id ? JSON.parse(JSON.stringify(item)) : x));
-    return done(next, `${item.name}: saved.`, [], { type: 'update', id: item.id, fields: before }, item.id);
+    const every = change.everyWeek && isWeekly(next, item);
+    if (every) {
+      // The usual details and the weeks already planned after this one.
+      const sid = item.seriesId;
+      next.series = { ...next.series, [sid]: { ...next.series[sid], item: { ...next.series[sid].item } } };
+      set(next.series[sid].item);
+      for (const k of laterWeeks(next)) { const f = findSeriesCard(next.weeks[k], sid); if (f) set(f.item); }
+    }
+    return done(next, `${item.name}: saved.`, [day], { type: 'update', id: item.id, fields: before, everyWeek: every }, item.id,
+      every ? 'Saved for every week.' : '');
   }
 
   if (change.type === 'park') {
@@ -137,9 +242,8 @@ export function applyChange(state, change) {
     const { day, period, item } = found;
     s[day][period] = s[day][period].filter((x) => x.id !== item.id);
     next.leftovers = [...(next.leftovers || []), item];
-    if (item.fixed) skip(next, item, day, period);
     return done(next, `${item.name} moved to “Later this week”.`, [], { type: 'place', id: item.id, toDay: day, toPeriod: period }, item.id,
-      item.fixed ? 'Next week it is back in its usual place.' : '');
+      isWeekly(next, item) ? 'For this week only: next week it is back in its usual place.' : '');
   }
 
   if (change.type === 'place') {
@@ -147,11 +251,7 @@ export function applyChange(state, change) {
     if (!item) return fail(state, 'That activity is no longer in “Later this week”.');
     if (!DAYS.includes(change.toDay) || !PERIODS.includes(change.toPeriod)) return fail(state, 'I need a day and a time of day.');
     next.leftovers = next.leftovers.filter((x) => x.id !== item.id);
-    if (item.fixed) {
-      const h = (state.skipped || []).find((x) => x.item.id === item.id);
-      forget(next, item.id);
-      if (h && (h.day !== change.toDay || h.period !== change.toPeriod)) item.home = { day: h.day, period: h.period };
-    }
+    if (!isWeekly(next, item)) { item.fixed = false; delete item.seriesId; }
     s[change.toDay][change.toPeriod].push(item);
     return done(next, `${item.name} added to ${where(change.toDay, change.toPeriod)}.`, [change.toDay], { type: 'park', id: item.id, force: true }, item.id);
   }
@@ -167,6 +267,63 @@ export function applyChange(state, change) {
     if (!item) return fail(state, 'That activity is no longer in “Later this week”.');
     next.leftovers = next.leftovers.filter((x) => x.id !== item.id);
     return done(next, `${item.name} removed from “Later this week”.`, [], { type: 'addLeftover', item: { ...item } }, item.id);
+  }
+
+  if (change.type === 'setWeekly') {
+    const found = findItem(s, change.id);
+    if (!found) return fail(state, 'That activity is no longer in the schedule.');
+    const { day, period, item } = found;
+    if (change.on) {
+      if (isWeekly(next, item)) return fail(state, `${item.name} already comes back every week.`);
+      const at = change.usual || { day, period };
+      startSeries(next, item, at.day, at.period, change.sid);
+      return done(next, `${item.name} now comes back every week.`, [], { type: 'setWeekly', id: item.id, on: false }, item.id,
+        `Every week on ${where(at.day, at.period)}.`);
+    }
+    if (!isWeekly(next, item)) return fail(state, `${item.name} is already only this week.`);
+    const sid = item.seriesId;
+    const series = clone(next.series[sid]);
+    const later = endSeries(next, sid);
+    item.fixed = false;
+    delete item.seriesId;
+    return done(next, `${item.name} is now only this week.`, [], { type: 'restoreSeries', sid, series, card: { day, period, item: { ...clone(item), seriesId: sid, fixed: true } }, later }, item.id,
+      'It will not come back next week.');
+  }
+
+  // Undo of "remove every week" and "stop every week": the series, this week's card, the later weeks' cards.
+  if (change.type === 'restoreSeries') {
+    const { sid, series, card, later = [] } = change;
+    next.series = { ...(next.series || {}), [sid]: clone(series) };
+    const here = findItem(s, card.item.id);
+    if (here) Object.assign(here.item, { seriesId: sid, fixed: true });
+    else s[card.day][card.period].push({ ...clone(card.item), seriesId: sid, fixed: true });
+    for (const x of later) {
+      const w = next.weeks?.[x.week];
+      if (!w || findSeriesCard(w, sid)) continue;
+      const kept = x.adopted && findItem(w, x.item.id);
+      if (kept) Object.assign(kept.item, { seriesId: sid, fixed: true, adopted: true });
+      else w[x.day][x.period].push(clone(x.item));
+    }
+    return done(next, `${card.item.name} comes back every week again.`, [card.day], { type: 'remove', id: card.item.id, everyWeek: true }, card.item.id);
+  }
+
+  if (change.type === 'batch') {
+    let cur = state;
+    const undos = [], messages = [], warnings = [], notices = [];
+    let itemId = null;
+    for (const c of change.changes || []) {
+      const r = applyChange(cur, c);
+      if (!r.ok) return r;
+      cur = r.state;
+      undos.unshift(r.undo);
+      messages.push(r.message.replace(r.notice ? ` ${r.notice}` : '', ''));
+      if (r.notice) notices.push(r.notice);
+      warnings.push(...r.warnings);
+      itemId = r.itemId || itemId;
+    }
+    const notice = notices[notices.length - 1] || '';
+    return { ok: true, state: cur, message: [...messages, notice].filter(Boolean).join(' '), warnings: [...new Set(warnings)], notice,
+      undo: { type: 'batch', changes: undos }, itemId };
   }
 
   return fail(state, 'Unknown change.');
@@ -233,42 +390,6 @@ export const restMinutes = REST_AFTER_RED_MIN;
 function done(state, message, daysToCheck, undo, itemId, notice = '') {
   const warnings = daysToCheck.flatMap((d) => checkDay(state.schedule, d).warnings.map((w) => `${d}: ${w}`));
   return { ok: true, state, message: notice ? `${message} ${notice}` : message, warnings, undo, itemId, notice };
-}
-
-// ---------- a new week ----------
-// Weekly activities go back to their usual place, and the ones cancelled this week come back
-// (only if that place does not already have the same activity). One-off activities stay as they are.
-const sameActivity = (a, b) => (a.activityId && a.activityId === b.activityId) || a.name === b.name;
-
-export function resetWeekly(schedule, skipped = []) {
-  const s = clone(schedule);
-  for (const day of DAYS) for (const period of PERIODS) {
-    for (const item of [...(s[day][period] || [])]) {
-      if (!item.fixed || !item.home) continue;
-      const h = item.home;
-      delete item.home;
-      if (!DAYS.includes(h.day) || !PERIODS.includes(h.period)) continue;
-      s[day][period] = s[day][period].filter((x) => x.id !== item.id);
-      s[h.day][h.period].push(item);
-    }
-  }
-  for (const { item, day, period } of skipped) {
-    if (!s[day]?.[period] || s[day][period].some((x) => sameActivity(x, item))) continue;
-    s[day][period].push(clone(item));
-  }
-  return s;
-}
-
-// The whole state on the first day of a new week.
-export function startNewWeek(state) {
-  const next = clone(state);
-  const skipped = next.skipped || [];
-  next.schedule = resetWeekly(next.schedule, skipped);
-  const back = new Set(skipped.map((x) => x.item.id));
-  next.leftovers = (next.leftovers || []).filter((x) => !back.has(x.id));
-  next.skipped = [];
-  next.kept = {};
-  return next;
 }
 
 // A day's content in one string: "Keep this day as it is" stays valid only while the day is unchanged

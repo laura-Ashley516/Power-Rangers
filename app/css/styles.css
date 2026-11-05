@@ -167,6 +167,15 @@ button.small { min-height: 44px; padding: 8px 14px; font-size: var(--fs-m); }
 .activity-name { font-size: var(--fs-card); font-weight: 500; line-height: 1.3; }
 .activity-meta { font-size: var(--fs-s); line-height: 1.35; margin-top: 2px; }
 /* A weekly activity moved for this week only (shown in the week grid too, where other details are hidden). */
+/* "This week only / Every week from now on" in a weekly card's menu: two big, plain choices. */
+.scope-options { border: 0; padding: 0; margin: 14px 0 0; }
+.scope-options legend { font-size: .85em; font-weight: 750; margin-bottom: 6px; }
+.scope-options label { display: flex; flex-direction: row; align-items: center; gap: 12px; min-height: 48px; padding: 0 14px; border: 1px solid var(--line-strong); border-radius: 10px; margin-top: 8px; cursor: pointer; font-weight: 600; }
+.scope-options label:has(input:checked) { border-color: var(--accent); background: var(--accent-soft, var(--surface-2)); }
+.field.scope-options input[type="radio"] { width: 22px; height: 22px; min-height: 0; padding: 0; margin: 0; flex: none; accent-color: var(--accent); }
+.scope-options span { flex: 1; text-align: left; }
+.copy-list { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.copy-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 10px; }
 .moved-note { font-size: var(--fs-s); line-height: 1.3; margin-top: 2px; color: var(--muted, inherit); }
 .activity-controls { display: flex; flex: 0 0 auto; margin: -6px -8px 0 0; }
 .activity-controls button { min-width: 40px; min-height: 40px; padding: 0; border: 0; background: transparent; color: inherit; font-size: var(--fs-l); line-height: 1; opacity: .75; }

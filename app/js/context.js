@@ -12,7 +12,6 @@ import { toast } from './ui-kit.js';
 export const ctx = {
   state: null,
   weekOffset: 0,
-  weekSchedules: {},     // other weeks are kept in memory while browsing (as in the first try)
   selectedActivity: null,
   placing: null,         // tap-to-place: { kind: 'library' | 'leftover', id, name }
   renderers: [],         // functions called after every commit

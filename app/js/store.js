@@ -6,9 +6,9 @@
 //
 // Track: B - Data + device
 
-import { DAYS, PERIODS } from './config.js';
+import { DAYS, PERIODS, APP_VERSION } from './config.js';
 
-export const STATE_VERSION = 4;
+export const STATE_VERSION = 5;
 const KEY = 'pwr-planner';
 const LEGACY_KEYS = ['my-week-my-way-v2']; // first-try planner
 
@@ -97,17 +97,48 @@ export function clientLeftovers() {
   ];
 }
 
+// A weekly activity's details, without what belongs to one week (its id, where it is, voice marks).
+const TEMPLATE_KEYS = ['name', 'energy', 'duration', 'reminder', 'steps', 'note', 'appointment', 'quiet', 'activityId', 'questions'];
+export function seriesTemplate(item) {
+  const t = {};
+  TEMPLATE_KEYS.forEach((k) => { if (item[k] !== undefined) t[k] = JSON.parse(JSON.stringify(item[k])); });
+  return t;
+}
+
+// Weekly activities become series (v5): one per weekly card, at its usual place (where it was before a
+// "this week only" move). Weekly ones cancelled this week (state.skipped) become series too.
+function toSeries(s) {
+  s.series = {};
+  DAYS.forEach((d) => PERIODS.forEach((p) => s.schedule[d][p].forEach((item) => {
+    if (!item.fixed) return;
+    const sid = uid();
+    const home = item.home && DAYS.includes(item.home.day) && PERIODS.includes(item.home.period) ? item.home : { day: d, period: p };
+    s.series[sid] = { item: seriesTemplate(item), day: home.day, period: home.period };
+    item.seriesId = sid;
+    delete item.home;
+  })));
+  (s.skipped || []).forEach((x) => {
+    if (!x?.item || !DAYS.includes(x.day) || !PERIODS.includes(x.period)) return;
+    s.series[uid()] = { item: seriesTemplate(x.item), day: x.day, period: x.period };
+  });
+  delete s.skipped;
+}
+
 export function fresh() {
-  return {
+  const state = {
     version: STATE_VERSION,
     library: seedLibrary.map((x) => ({ ...x, steps: [...x.steps] })),
     schedule: clientWeek(),
     leftovers: clientLeftovers(),
     previous: null,
+    series: {},
+    weeks: {},
     settings: defaultSettings(),
     changeLog: [],
     updatedAt: Date.now(),
   };
+  toSeries(state); // the example week's weekly activities (walk, church, physio…) become series
+  return state;
 }
 
 // The first example week (v0.5 and before). Kept for the voice parser tests, whose sentences use it.
@@ -123,7 +154,9 @@ export function sampleWeek() {
   add('Monday', 'Morning', 's1', 'physio'); add('Monday', 'Afternoon', 's2', 'walk'); add('Tuesday', 'Morning', 's3', 'laundry');
   add('Wednesday', 'Afternoon', 's4', 'shopping'); add('Thursday', 'Morning', 's5', 'physio'); add('Friday', 'Evening', 's6', 'read');
   add('Sunday', 'Morning', 's7', 'church');
-  return { ...fresh(), library, schedule, leftovers: [] };
+  const state = { ...fresh(), library, schedule, leftovers: [] };
+  toSeries(state);
+  return state;
 }
 
 // Bring any older save up to the current version. Never throws away activities.
@@ -139,11 +172,17 @@ export function migrate(raw) {
     // v4: leftovers tray, steps. Existing weeks are kept as they are.
     s.version = 4;
   }
-  // Make sure every day/period exists.
+  // Make sure every day/period exists (before the weekly activities are read below).
   DAYS.forEach((d) => {
     s.schedule[d] = s.schedule[d] || {};
     PERIODS.forEach((p) => (s.schedule[d][p] = Array.isArray(s.schedule[d][p]) ? s.schedule[d][p] : []));
   });
+  if (s.version < 5 || !s.series) {
+    // v5: each week saved on its own (weeks) and weekly activities as series. The week saved so far is kept.
+    toSeries(s);
+    s.weeks = s.weeks && typeof s.weeks === 'object' ? s.weeks : {};
+    s.version = 5;
+  }
   s.settings = { ...defaultSettings(), ...(s.settings || {}) };
   if (s.settings.large && !raw.settings?.size) s.settings.size = 'large'; // old "Larger text" switch
   s.changeLog = Array.isArray(s.changeLog) ? s.changeLog : [];
@@ -163,15 +202,56 @@ export function migrate(raw) {
 }
 
 export function load() {
+  let raw = null;
+  try { raw = localStorage.getItem(KEY); } catch (e) { /* storage unavailable */ }
   try {
-    const current = migrate(JSON.parse(localStorage.getItem(KEY)));
-    if (current) return current;
+    const saved = raw && JSON.parse(raw);
+    // Before an update changes how things are saved: keep a copy of the save exactly as it was.
+    if (saved && saved.appVersion !== APP_VERSION) keepSafetyCopy(raw, `before the update to version ${APP_VERSION}`);
+    const current = migrate(saved);
+    if (current) { current.appVersion = APP_VERSION; return current; }
     for (const k of LEGACY_KEYS) {
       const old = migrate(JSON.parse(localStorage.getItem(k)));
       if (old) return old; // the legacy copy is left in place
     }
-  } catch (e) { /* fall through to fresh */ }
+  } catch (e) {
+    // Never lose a save that could not be opened: it is kept as a safety copy (Settings → Restore).
+    if (raw) keepSafetyCopy(raw, 'could not be opened');
+  }
   return fresh();
+}
+
+// ---------- safety copies ----------
+// Copies of everything on this iPad: one a day (last 7 days), one before each update, one before each restore.
+// A mistake or a bug never costs her the week: Settings → Keep my schedule safe → Restore.
+// (They live in the same browser storage, so a backup file is still the way to move to another device.)
+const COPIES_KEY = 'pwr-planner-copies';
+const MAX_DAILY = 7, MAX_OTHER = 4;
+const today = () => { const d = new Date(); return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+
+export function safetyCopies() {
+  try { return JSON.parse(localStorage.getItem(COPIES_KEY)) || []; } catch (e) { return []; }
+}
+
+// data: the state, or the saved text exactly as it was. Returns true when a copy was kept.
+export function keepSafetyCopy(data, reason, { daily = false } = {}) {
+  try {
+    let copies = safetyCopies();
+    if (daily && copies.some((c) => c.daily && c.day === today())) return false;
+    copies.unshift({ id: uid(), at: Date.now(), day: today(), daily, reason, data: typeof data === 'string' ? data : JSON.stringify(data) });
+    copies = [...copies.filter((c) => c.daily).slice(0, MAX_DAILY), ...copies.filter((c) => !c.daily).slice(0, MAX_OTHER)].sort((a, b) => b.at - a.at);
+    // Storage full: drop the oldest copies until it fits (the planner itself always comes first).
+    while (copies.length) {
+      try { localStorage.setItem(COPIES_KEY, JSON.stringify(copies)); return true; } catch (e) { copies.pop(); }
+    }
+  } catch (e) { /* storage unavailable */ }
+  return false;
+}
+
+// A copy back as a state (brought up to date like any older save), or null.
+export function readSafetyCopy(id) {
+  const c = safetyCopies().find((x) => x.id === id);
+  try { return c ? migrate(JSON.parse(c.data)) : null; } catch (e) { return null; }
 }
 
 export function save(state) {

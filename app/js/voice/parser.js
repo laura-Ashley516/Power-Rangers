@@ -37,11 +37,15 @@ const ENERGY_WORDS = {
 const STOP = new Set(('i me my mine the a an to on for at in from of with please can could would you also and then so just that this these it its ' +
   'um uh uhm er ah oh okay ok well is are be will ill id lets let us we our some energy level activity thing stuff ' +
   'next coming week day o clock oclock time around about by until till into back over there here really maybe ' +
-  'need want have got going gonna remember remind go for do').split(' '));
+  'need want have got going gonna remember remind go for do ' +
+  'every each weekly task tasks event events').split(' '));
 
 const REMOVE = /\b(cancel|cancelled|canceled|remove|delete|drop|skip|scrap|clear|get rid of|take off|no longer|not going|dont need|do not need|not doing|wont)\b/;
 const MOVE = /\b(move|moved|reschedule|rescheduled|change|push|pushed|shift|switch|bring|postpone|put off|delay|instead)\b/;
 const ADD = /\b(add|put|schedule|book|plan|i have|ive got|i got|theres|there is|need to|want to|going to|im going|remind me|new)\b/;
+// "every week", "weekly", "every Sunday", "each Friday": for every week from now on (rules: series).
+const WEEKLY = /\b(every|each|weekly)\b/;
+const MAKE = /\b(make|turn|set)\b/;
 const VERB_START = /^(add|put|schedule|book|plan|move|reschedule|change|push|shift|cancel|remove|delete|drop|skip|i have|ive got|i need|i want|remind)\b/;
 
 export function normalize(text) {
@@ -138,7 +142,7 @@ function findMentions(tokens, now) {
 
 const TIME_TOKENS = new Set(['today', 'tonight', 'tomorrow', 'morning', 'mornings', 'afternoon', 'afternoons', 'evening', 'evenings',
   'night', 'noon', 'lunchtime', 'breakfast', 'am', 'pm', 'after', ...WEEKDAYS, ...WEEKDAYS.map((d) => d + 's')]);
-const VERB_TOKENS = new Set(['add', 'put', 'schedule', 'book', 'booked', 'plan', 'move', 'moved', 'reschedule', 'rescheduled', 'change', 'push', 'pushed',
+const VERB_TOKENS = new Set(['make', 'turn', 'set', 'add', 'put', 'schedule', 'book', 'booked', 'plan', 'move', 'moved', 'reschedule', 'rescheduled', 'change', 'push', 'pushed',
   'shift', 'switch', 'bring', 'postpone', 'delay', 'cancel', 'cancelled', 'canceled', 'remove', 'delete', 'drop', 'skip', 'scrap', 'clear',
   'off', 'rid', 'take', 'get', 'not', 'dont', 'do', 'wont', 'longer', 'doing', 'instead', 'theres', 'ive', 'im', 'new']);
 const ENERGY_TOKENS = new Set(Object.values(ENERGY_WORDS).flat());
@@ -230,10 +234,40 @@ function parseOne(tokens, ctx, now, newId) {
   const periods = pairPeriods(mentions);
   const phrase = activityPhrase(tokens);
   const energy = spokenEnergy(tokens);
-  const intent = REMOVE.test(text) ? 'remove' : MOVE.test(text) ? 'move' : ADD.test(text) ? 'add' : dayMentions.length ? 'add' : null;
+  const everyWeek = WEEKLY.test(text);
+  const intent = REMOVE.test(text) ? 'remove' : MOVE.test(text) ? 'move' : everyWeek && MAKE.test(text) ? 'weekly'
+    : ADD.test(text) ? 'add' : dayMentions.length ? 'add' : null;
+  const weeklyCard = (item) => !!(item.fixed && item.seriesId);
+  const ew = everyWeek ? ', every week' : '';
 
   if (!intent) return { ok: false, text, reason: 'I did not hear what to do (add, move or cancel) or a day.' };
   if (!phrase) return { ok: false, text, reason: 'I did not hear which activity.' };
+
+  // "Make clean bathroom weekly (on Sunday evening)": the card there (or the only one this week) comes every week.
+  if (intent === 'weekly') {
+    const day = dayMentions[0]?.value || null;
+    const period = (periods.find((p) => p.day && p.day.value === day) || periods[0])?.value || null;
+    const r = findScheduled(phrase, ctx.schedule, day, period);
+    if (r.found) {
+      const { item, day: d, period: p } = r.found;
+      if (weeklyCard(item)) return { ok: true, change: { type: 'move', id: item.id, toDay: d, toPeriod: p, everyWeek: true }, summary: `Keep ${item.name} on ${where(d, p)}, every week` };
+      return { ok: true, change: { type: 'setWeekly', id: item.id, on: true }, summary: `Make ${item.name} come every week on ${where(d, p)}` };
+    }
+    if (r.many) return { ok: false, text, reason: `I found “${r.many[0].item.name}” more than once (${r.many.map((x) => x.day).join(', ')}). Please say which day.` };
+    if (!day) return { ok: false, text, reason: `I could not find “${phrase}” this week. Please say the day.` };
+    // Not in that place yet: add it there, every week.
+  }
+
+  if (intent === 'add' && everyWeek) {
+    // Already there this week: make that one weekly instead of adding a second one.
+    const day = dayMentions[0]?.value || null;
+    const period = (periods.find((p) => p.day && p.day.value === day) || periods[0])?.value || null;
+    if (day && period) {
+      const r = findScheduled(phrase, ctx.schedule, day, period);
+      if (r.found && !weeklyCard(r.found.item)) return { ok: true, change: { type: 'setWeekly', id: r.found.item.id, on: true }, summary: `Make ${r.found.item.name} come every week on ${where(day, period)}` };
+      if (r.found) return { ok: false, text, reason: `${r.found.item.name} already comes every week on ${where(day, period)}.` };
+    }
+  }
 
   if (intent === 'remove') {
     const day = dayMentions[0]?.value || null;
@@ -242,6 +276,7 @@ function parseOne(tokens, ctx, now, newId) {
     if (r.none) return { ok: false, text, reason: `I could not find “${phrase}”${day ? ' on ' + day : ''} in the calendar.` };
     if (r.many) return { ok: false, text, reason: `I found “${r.many[0].item.name}” more than once (${r.many.map((x) => x.day).join(', ')}). Please say which day.` };
     const { item, day: d, period: p } = r.found;
+    if (everyWeek && weeklyCard(item)) return { ok: true, change: { type: 'remove', id: item.id, everyWeek: true }, summary: `Remove ${item.name} from every week` };
     return { ok: true, change: { type: 'remove', id: item.id }, summary: `Cancel ${item.name} on ${where(d, p)}` };
   }
 
@@ -257,7 +292,11 @@ function parseOne(tokens, ctx, now, newId) {
     const toDay = targetDayMention?.value || day;
     const toPeriod = targetPeriod || (targetDayMention ? period : null);
     if (!targetDayMention && !targetPeriod) return { ok: false, text, reason: `I heard to move ${item.name}, but not where to.` };
-    return { ok: true, change: { type: 'move', id: item.id, toDay, toPeriod }, summary: `Move ${item.name} to ${where(toDay, toPeriod)}` };
+    if (everyWeek && !weeklyCard(item)) {
+      const steps = day === toDay && period === toPeriod ? [] : [{ type: 'move', id: item.id, toDay, toPeriod }];
+      return { ok: true, change: { type: 'batch', changes: [...steps, { type: 'setWeekly', id: item.id, on: true }] }, summary: `Move ${item.name} to ${where(toDay, toPeriod)}, every week` };
+    }
+    return { ok: true, change: { type: 'move', id: item.id, toDay, toPeriod, everyWeek: everyWeek || undefined }, summary: `Move ${item.name} to ${where(toDay, toPeriod)}${ew}` };
   }
 
   // add
@@ -268,11 +307,11 @@ function parseOne(tokens, ctx, now, newId) {
   if (!period) { period = leastBusyPeriod(ctx.schedule, day); note = ` (no time of day said; placed in the ${period.toLowerCase()})`; }
   const match = bestLibraryMatch(phrase, ctx.library);
   if (match) {
-    const item = { ...match, id: newId(), activityId: match.id, energy: energy || match.energy };
-    return { ok: true, change: { type: 'add', day, period, item }, summary: `Add ${match.name} to ${where(day, period)}${note}` };
+    const item = { ...match, fixed: false, id: newId(), activityId: match.id, energy: energy || match.energy };
+    return { ok: true, change: { type: 'add', day, period, item, everyWeek: everyWeek || undefined }, summary: `Add ${match.name} to ${where(day, period)}${ew}${note}` };
   }
   const libraryItem = { id: newId(), name: cap(phrase), energy: energy || 'green', duration: 30, fixed: false, reminder: true };
   const item = { ...libraryItem, id: newId(), activityId: libraryItem.id };
   const energyNote = energy ? '' : ' (energy not said; set to Easy, you can change it)';
-  return { ok: true, change: { type: 'add', day, period, item, libraryItem }, summary: `Add ${libraryItem.name} (new) to ${where(day, period)}${note}${energyNote}` };
+  return { ok: true, change: { type: 'add', day, period, item, libraryItem, everyWeek: everyWeek || undefined }, summary: `Add ${libraryItem.name} (new) to ${where(day, period)}${ew}${note}${energyNote}` };
 }

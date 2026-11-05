@@ -68,6 +68,6 @@ export function closeModal() { $('modalRoot').innerHTML = ''; }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('modalRoot')?.innerHTML) closeModal(); });
 
 // Energy picker used in the activity forms: four big labelled choices (shape + word + colour).
-export function energyPicker(name, selected = 'green') {
-  return `<fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:.85em;font-weight:750;margin-bottom:5px">Energy</legend><div class="energy-options">${['green', 'yellow', 'red', 'rest'].map((e) => `<label class="e-${e}"><input type="radio" name="${name}" value="${e}" ${e === selected ? 'checked' : ''}><span class="shape" aria-hidden="true">${shape(e)}</span>${energyLabel(e)}</label>`).join('')}</div></fieldset>`;
+export function energyPicker(name, selected = 'green', legend = 'Energy') {
+  return `<fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:.85em;font-weight:750;margin-bottom:5px">${legend}</legend><div class="energy-options">${['green', 'yellow', 'red', 'rest'].map((e) => `<label class="e-${e}"><input type="radio" name="${name}" value="${e}" ${e === selected ? 'checked' : ''}><span class="shape" aria-hidden="true">${shape(e)}</span>${energyLabel(e)}</label>`).join('')}</div></fieldset>`;
 }

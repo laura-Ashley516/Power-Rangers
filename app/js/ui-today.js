@@ -14,10 +14,10 @@ import { checkDay } from './rules.js';
 import { uid, isAppointment, isQuiet } from './store.js';
 import { appointmentToday } from './ui-appointment.js';
 import { $, esc, shape, energyLabel, toast, dayName, dateKey, currentPeriodIndex, orderedDays } from './ui-kit.js';
-import { budgetHtml, renderCard } from './ui-week.js';
+import { budgetHtml, renderCard, scheduleFor } from './ui-week.js';
 
 // Today always uses THIS week, even while the week board shows another week.
-const thisWeek = () => (ctx.weekOffset === 0 ? ctx.state.schedule : ctx.weekSchedules[0] || ctx.state.schedule);
+const thisWeek = () => scheduleFor(0);
 const clone = (x) => JSON.parse(JSON.stringify(x));
 
 // Steps are a plain "remember" list: nothing is ticked or saved (no tracking, decision 30).
@@ -70,7 +70,7 @@ export function renderToday() {
   const tDay = dayName(tomorrowDate);
   // Tomorrow may be in next week's board when today is the last day of the week.
   const lastDay = orderedDays(ctx.state.settings.weekStart)[6];
-  const tSched = day === lastDay ? (ctx.weekSchedules[1] || sched) : sched;
+  const tSched = day === lastDay ? scheduleFor(1) : sched;
   const tItems = PERIODS.flatMap((p) => (tSched[tDay][p] || []).map((a) => ({ a, p })));
   const tomorrow = `<section class="panel" aria-labelledby="tmTitle"><h3 id="tmTitle">Tomorrow, ${tDay}</h3>${tItems.length ? `<ul class="tomorrow-list">${tItems.map(({ a, p }) => `<li><span class="when">${p}</span><span>${shape(a.energy)} ${esc(a.name)}</span></li>`).join('')}</ul>` : '<p class="muted">Nothing planned yet.</p>'}<div class="row" style="margin-top:var(--gap)"><button class="small" data-print-tomorrow="${tDay}">Print tomorrow</button><button class="small" data-open-day="${tDay}">Change tomorrow</button></div></section>`;
   $('todaySide').innerHTML = tomorrow;

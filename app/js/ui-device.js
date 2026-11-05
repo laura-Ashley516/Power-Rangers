@@ -9,6 +9,7 @@ import { BleTransport, FakeTransport, DeviceLink } from './device.js';
 import { MqttTransport, newPairingCode, normalizeCode } from './device-wifi.js';
 import { scheduleToLines, linesToSchedule, isScheduleEmpty, quietLines } from './store.js';
 import { $, esc, toast } from './ui-kit.js';
+import { scheduleFor } from './ui-week.js';
 import { saveNote } from './voice/notes.js';
 import { toPlayableWav, wavInfo, encodeImaAdpcmWav } from './voice/wav.js';
 import { processAll, renderVoiceView, updateCount } from './voice/inbox.js';
@@ -91,7 +92,7 @@ async function runSync(out) {
 
     // 1. Week: send it, unless this app is empty and the device still has a copy (then restore).
     let weekMsg = '';
-    if (isScheduleEmpty(ctx.state.schedule) && info.scheduleCount > 0) {
+    if (ctx.weekOffset === 0 && isScheduleEmpty(ctx.state.schedule) && info.scheduleCount > 0) {
       if (confirm(`This planner is empty, but the device still has ${info.scheduleCount} activities. Restore them from the device?`)) {
         const lines = await link.getBackup();
         const { schedule, library } = linesToSchedule(lines, ctx.state.library);
@@ -101,7 +102,7 @@ async function runSync(out) {
         weekMsg = 'Nothing sent: the empty planner did not overwrite the device.';
       }
     } else {
-      const lines = scheduleToLines(ctx.state.schedule);
+      const lines = scheduleToLines(scheduleFor(0)); // always this week, even while another week is on screen
       if (lines.length > MAX_DEVICE_ACTIVITIES) {
         weekMsg = `The device holds ${MAX_DEVICE_ACTIVITIES} activities; this week has ${lines.length}. Only the first ${MAX_DEVICE_ACTIVITIES} were sent. `;
         lines.length = MAX_DEVICE_ACTIVITIES;
@@ -109,7 +110,7 @@ async function runSync(out) {
       out.textContent = 'Sending your week…';
       await link.sendSchedule(lines);
       weekMsg += `Week sent (${lines.length} activities).`;
-      const quiet = quietLines(ctx.state.schedule, ctx.state.library);
+      const quiet = quietLines(scheduleFor(0), ctx.state.library);
       if (quiet.length && (await link.sendQuiet(quiet))) weekMsg += ` ${quiet.length} quiet time${quiet.length > 1 ? 's' : ''} sent.`;
     }
 

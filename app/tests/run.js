@@ -1,8 +1,10 @@
 // Run with:  node app/tests/run.js   (Node 18+; no packages needed)
 // Checks the energy rules, the parser against tests/sentences.js, and the device backup lines.
 
-import { fresh, sampleWeek, scheduleToLines, linesToSchedule, emptySchedule, migrate, isAppointment, isQuiet, quietLines } from '../js/store.js';
-import { checkDay, applyChange, findItem, suggestBalance, splitChanges, daySignature, startNewWeek } from '../js/rules.js';
+import { DAYS, PERIODS } from '../js/config.js';
+import { fresh, sampleWeek, scheduleToLines, linesToSchedule, emptySchedule, migrate, isAppointment, isQuiet, quietLines, load, save, safetyCopies, keepSafetyCopy, readSafetyCopy } from '../js/store.js';
+import { APP_VERSION } from '../js/config.js';
+import { checkDay, applyChange, findItem, suggestBalance, splitChanges, daySignature, openWeek, weekFromSeries } from '../js/rules.js';
 import { parse } from '../js/voice/parser.js';
 import { SENTENCES, NOW } from './sentences.js';
 import { CLIENT_SENTENCES } from './sentences-client.js';
@@ -34,26 +36,114 @@ check('red + yellow on the same day is flagged', day([R, Y]).over);
 check('2 reds is flagged', day([R, R]).over);
 
 const st = sampleWeek();
-// Weekly activities (fixed) can be changed for one week; a new week puts them back (client feedback, Nov 3).
+// Weekly activities and saved weeks (client feedback, Nov 3 and Nov 4 2026). sampleWeek: physio Monday and
+// Thursday morning and church Sunday morning are weekly (series); the others are one-time.
+const W1 = '2026-11-01', W2 = '2026-11-08', W3 = '2026-11-15';
+st.shownWeek = W1;
+const names = (sched, d, p) => sched[d][p].map((a) => a.name);
+const usualOf = (state, id) => state.series[findItem(state.schedule, id).item.seriesId];
+check('the example weekly activities are series', Object.keys(st.series).length === 3 && findItem(st.schedule, 's1').item.seriesId && !findItem(st.schedule, 's2').item.seriesId);
+
+// Saving each week
+let wk = openWeek(st, W2);
+check('a week never opened starts with the weekly activities only', wk.shownWeek === W2 && names(wk.schedule, 'Monday', 'Morning').join() === 'Physiotherapy' && !names(wk.schedule, 'Monday', 'Afternoon').length && wk.weeks[W1]);
+wk = applyChange(wk, { type: 'add', day: 'Sunday', period: 'Evening', item: { id: 'cb', name: 'Clean Bathroom', energy: 'green' } }).state;
+const backW1 = openWeek(wk, W1);
+check('each week is saved on its own: going back shows this week as it was', !names(backW1.schedule, 'Sunday', 'Evening').length && names(backW1.weeks[W2], 'Sunday', 'Evening').join() === 'Clean Bathroom');
+check('and the other week is still there when it is opened again', names(openWeek(backW1, W2).schedule, 'Sunday', 'Evening').join() === 'Clean Bathroom');
+
+// This week only (the default)
 let r = applyChange(st, { type: 'move', id: 's1', toDay: 'Tuesday', toPeriod: 'Morning' });
-check('weekly activity moves for this week, with a "this week only" notice', r.ok && findItem(r.state.schedule, 's1').day === 'Tuesday' && /this week only/.test(r.message) && /Monday morning/.test(r.notice));
-let nw = startNewWeek(r.state);
-check('new week: a moved weekly activity is back in its usual place', findItem(nw.schedule, 's1')?.day === 'Monday' && findItem(nw.schedule, 's1')?.period === 'Morning' && !findItem(nw.schedule, 's1').item.home);
-const twice = applyChange(applyChange(r.state, { type: 'move', id: 's1', toDay: 'Friday', toPeriod: 'Evening' }).state, { type: 'move', id: 's1', toDay: 'Monday', toPeriod: 'Morning' });
-check('moving it back to its usual place says so and forgets the move', twice.ok && /usual place/.test(twice.message) && !findItem(twice.state.schedule, 's1').item.home);
-check('undo of a weekly move puts it back and forgets the move', !findItem(applyChange(r.state, r.undo).state.schedule, 's1').item.home && findItem(applyChange(r.state, r.undo).state.schedule, 's1').day === 'Monday');
+check('moving a weekly activity is for this week only, and the message says so', r.ok && findItem(r.state.schedule, 's1').day === 'Tuesday' && /this week only/.test(r.message) && /Monday morning/.test(r.notice) && usualOf(r.state, 's1').day === 'Monday');
+check('next week it is in its usual place', names(weekFromSeries(r.state.series), 'Monday', 'Morning').join() === 'Physiotherapy');
+check('the card shows it is moved for this week (usual place differs)', usualOf(r.state, 's1').day !== findItem(r.state.schedule, 's1').day);
+const twice = applyChange(r.state, { type: 'move', id: 's1', toDay: 'Monday', toPeriod: 'Morning' });
+check('moving it back to its usual place says so', twice.ok && /usual place/.test(twice.message));
 r = applyChange(st, { type: 'remove', id: 's5' });
-check('weekly activity can be cancelled for this week', r.ok && !findItem(r.state.schedule, 's5') && /comes back next week/.test(r.message));
-nw = startNewWeek(r.state);
-check('new week: a cancelled weekly activity comes back, once', nw.schedule.Thursday.Morning.filter((a) => a.name === 'Physiotherapy').length === 1 && !nw.skipped.length);
-check('undo of a cancel does not bring it back twice', startNewWeek(applyChange(r.state, r.undo).state).schedule.Thursday.Morning.filter((a) => a.name === 'Physiotherapy').length === 1);
-const addW = applyChange(st, { type: 'add', day: 'Sunday', period: 'Evening', item: { id: 'w9', name: 'Choir', energy: 'green', fixed: true } });
-check('undoing the add of a weekly activity does not bring it back next week', !startNewWeek(applyChange(addW.state, { ...addW.undo, force: true }).state).schedule.Sunday.Evening.some((a) => a.name === 'Choir'));
-const newWeekly = applyChange(st, { type: 'add', day: 'Monday', period: 'Evening', libraryItem: { id: 'lib-yoga', name: 'Yoga', energy: 'green', fixed: true }, item: { id: 'y1', activityId: 'lib-yoga', name: 'Yoga', energy: 'green', fixed: true } });
-check('a new activity set to "Repeat every week" says so and is in My activities', newWeekly.ok && /repeats every week/.test(newWeekly.message) && newWeekly.state.library.some((x) => x.id === 'lib-yoga' && x.fixed));
-check('it comes back next week in the same place', startNewWeek(newWeekly.state).schedule.Monday.Evening.some((x) => x.name === 'Yoga'));
-const oneOff = applyChange(st, { type: 'move', id: 's2', toDay: 'Friday', toPeriod: 'Morning' });
-check('new week: one-off activities stay where they are', findItem(startNewWeek(oneOff.state).schedule, 's2').day === 'Friday');
+check('removing a weekly activity is for this week only, and it comes back next week', r.ok && !findItem(r.state.schedule, 's5') && /comes back next week/.test(r.message) && names(weekFromSeries(r.state.series), 'Thursday', 'Morning').join() === 'Physiotherapy');
+check('undo of "remove this week only" brings the weekly card back', !!findItem(applyChange(r.state, r.undo).state.schedule, 's5')?.item.seriesId);
+
+// Every week
+r = applyChange(st, { type: 'remove', id: 's7', everyWeek: true });
+check('"Remove every week" removes it and it does not come back', r.ok && !findItem(r.state.schedule, 's7') && !Object.values(r.state.series).some((x) => x.item.name === 'Church') && !names(weekFromSeries(r.state.series), 'Sunday', 'Morning').length);
+const un = applyChange(r.state, r.undo);
+check('undo of "remove every week" brings back the card and the series', un.ok && findItem(un.state.schedule, 's7') && Object.values(un.state.series).some((x) => x.item.name === 'Church' && x.day === 'Sunday'));
+// A week already planned ahead follows "every week" changes
+let ahead = openWeek(openWeek(st, W2), W1); // W2 now saved, back on W1
+r = applyChange(ahead, { type: 'move', id: 's5', toDay: 'Thursday', toPeriod: 'Afternoon', everyWeek: true });
+check('"Every week" move changes the usual place', r.ok && usualOf(r.state, 's5').period === 'Afternoon' && /Every week from now on/.test(r.notice));
+check('...and the week already planned ahead', names(r.state.weeks[W2], 'Thursday', 'Afternoon').join() === 'Physiotherapy' && !names(r.state.weeks[W2], 'Thursday', 'Morning').length);
+check('...and a week never opened', names(weekFromSeries(r.state.series), 'Thursday', 'Afternoon').join() === 'Physiotherapy');
+const unmove = applyChange(r.state, r.undo);
+check('undo of an "every week" move puts everything back', usualOf(unmove.state, 's5').period === 'Morning' && names(unmove.state.weeks[W2], 'Thursday', 'Morning').join() === 'Physiotherapy');
+const pastWeek = openWeek(openWeek(st, '2026-10-25'), W1);
+r = applyChange(pastWeek, { type: 'remove', id: 's7', everyWeek: true });
+check('"every week" never changes past weeks', names(r.state.weeks['2026-10-25'], 'Sunday', 'Morning').join() === 'Church');
+// Make a one-time card weekly, and stop a weekly one
+r = applyChange(ahead, { type: 'setWeekly', id: 's2', on: true });
+check('"Every week" on: a one-time card comes back every week in its place', r.ok && findItem(r.state.schedule, 's2').item.seriesId && names(weekFromSeries(r.state.series), 'Monday', 'Afternoon').join() === 'Walk' && names(r.state.weeks[W2], 'Monday', 'Afternoon').join() === 'Walk');
+check('undo of "every week" on', !findItem(applyChange(r.state, r.undo).state.schedule, 's2').item.seriesId && !names(applyChange(r.state, r.undo).state.weeks[W2], 'Monday', 'Afternoon').length);
+r = applyChange(ahead, { type: 'setWeekly', id: 's7', on: false });
+check('"Every week" off: it stays this week, not the next weeks', r.ok && findItem(r.state.schedule, 's7') && !findItem(r.state.schedule, 's7').item.seriesId && !names(r.state.weeks[W2], 'Sunday', 'Morning').length);
+check('undo of "every week" off', !!findItem(applyChange(r.state, r.undo).state.schedule, 's7').item.seriesId && names(applyChange(r.state, r.undo).state.weeks[W2], 'Sunday', 'Morning').join() === 'Church');
+// Colour (energy)
+r = applyChange(ahead, { type: 'update', id: 's7', fields: { energy: 'red' } });
+check('colour change, this week only', findItem(r.state.schedule, 's7').item.energy === 'red' && usualOf(r.state, 's7').item.energy === 'green');
+r = applyChange(ahead, { type: 'update', id: 's7', fields: { energy: 'red' }, everyWeek: true });
+check('colour change, every week (usual and weeks ahead)', usualOf(r.state, 's7').item.energy === 'red' && r.state.weeks[W2].Sunday.Morning[0].energy === 'red');
+// Adding
+const addOne = applyChange(st, { type: 'add', day: 'Sunday', period: 'Evening', libraryItem: { id: 'lib-cb', name: 'Clean Bathroom', energy: 'green' }, item: { id: 'cb1', activityId: 'lib-cb', name: 'Clean Bathroom', energy: 'green', fixed: true } });
+check('a new activity goes in "My activities" so it can be dragged again later', addOne.state.library.some((x) => x.id === 'lib-cb'));
+check('added from "My activities": only this week (even if the activity was weekly before), and the message says so', !findItem(addOne.state.schedule, 'cb1').item.seriesId && /Only this week/.test(addOne.message));
+const addEvery = applyChange(st, { type: 'add', day: 'Sunday', period: 'Evening', everyWeek: true, item: { id: 'cb2', name: 'Clean Bathroom', energy: 'green' } });
+check('added with "Repeat every week": a series, and the message says so', !!findItem(addEvery.state.schedule, 'cb2').item.seriesId && /every week on Sunday evening/.test(addEvery.message));
+check('undo of an every-week add removes the series too', !Object.values(applyChange(addEvery.state, addEvery.undo).state.series).some((x) => x.item.name === 'Clean Bathroom'));
+// She added it by hand on two Sundays, then made one weekly: no second card next week.
+let twoSundays = openWeek(applyChange(openWeek(st, W2), { type: 'add', day: 'Sunday', period: 'Evening', item: { id: 'h2', activityId: 'lib-h', name: 'Clean Bathroom', energy: 'green' } }).state, W1);
+twoSundays = applyChange(twoSundays, { type: 'add', day: 'Sunday', period: 'Evening', item: { id: 'h1', activityId: 'lib-h', name: 'Clean Bathroom', energy: 'green' } }).state;
+r = applyChange(twoSundays, { type: 'setWeekly', id: 'h1', on: true });
+check('making it weekly reuses the one already planned next week (no duplicate)', names(r.state.weeks[W2], 'Sunday', 'Evening').join() === 'Clean Bathroom' && r.state.weeks[W2].Sunday.Evening[0].seriesId);
+const stop = applyChange(r.state, { type: 'setWeekly', id: 'h1', on: false });
+check('...and stopping it keeps the one she added by hand next week', names(stop.state.weeks[W2], 'Sunday', 'Evening').join() === 'Clean Bathroom' && !stop.state.weeks[W2].Sunday.Evening[0].seriesId);
+check('...and undo of the stop makes it weekly again, still one card', names(applyChange(stop.state, stop.undo).state.weeks[W2], 'Sunday', 'Evening').join() === 'Clean Bathroom' && applyChange(stop.state, stop.undo).state.weeks[W2].Sunday.Evening[0].seriesId);
+
+// Safety copies (a stand-in for the iPad's storage)
+const store = {};
+globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
+const oldSave = { ...JSON.parse(JSON.stringify(st)), version: 4, appVersion: '0.8.5' };
+delete oldSave.series; delete oldSave.weeks;
+store['pwr-planner'] = JSON.stringify(oldSave);
+const loadedSave = load();
+check('an update keeps a safety copy of the save exactly as it was', safetyCopies().length === 1 && /before the update/.test(safetyCopies()[0].reason) && safetyCopies()[0].data === JSON.stringify(oldSave));
+check('the save opens normally after the update', loadedSave.version === 5 && loadedSave.appVersion === APP_VERSION && !!findItem(loadedSave.schedule, 's1'));
+save(loadedSave);
+load();
+check('no second "before update" copy once updated', safetyCopies().length === 1);
+check('one daily copy per day only', keepSafetyCopy(loadedSave, 'daily copy', { daily: true }) && !keepSafetyCopy(loadedSave, 'daily copy', { daily: true }));
+const restoredCopy = readSafetyCopy(safetyCopies().find((c) => /before the update/.test(c.reason)).id);
+check('a safety copy can be restored (brought up to date)', restoredCopy && restoredCopy.version === 5 && !!findItem(restoredCopy.schedule, 's1'));
+store['pwr-planner'] = '{ not readable';
+const unreadableSave = load();
+check('a save that cannot be opened is never lost: it is kept as a safety copy', safetyCopies().some((c) => c.reason === 'could not be opened' && c.data === '{ not readable') && !!unreadableSave.library);
+for (let i = 0; i < 12; i++) keepSafetyCopy(loadedSave, 'before a restore');
+check('safety copies are capped (7 daily + 4 others)', safetyCopies().filter((c) => !c.daily).length === 4 && safetyCopies().filter((c) => c.daily).length <= 7);
+delete globalThis.localStorage;
+
+// One Save, several changes, one Undo
+r = applyChange(st, { type: 'batch', changes: [{ type: 'move', id: 's2', toDay: 'Friday', toPeriod: 'Evening' }, { type: 'setWeekly', id: 's2', on: true }] });
+check('several changes in one Save, undone at once', r.ok && usualOf(r.state, 's2').day === 'Friday' && findItem(applyChange(r.state, r.undo).state.schedule, 's2').day === 'Monday' && !findItem(applyChange(r.state, r.undo).state.schedule, 's2').item.seriesId);
+
+// Older saves (v4): weekly cards become series at their usual place; cancelled ones too. Nothing is lost.
+const v4 = { version: 4, library: st.library, schedule: JSON.parse(JSON.stringify(sampleWeek().schedule)), leftovers: [], settings: {}, changeLog: [] };
+DAYS.forEach((d) => PERIODS.forEach((p) => v4.schedule[d][p].forEach((a) => { delete a.seriesId; })));
+v4.schedule.Tuesday.Evening.push({ ...v4.schedule.Monday.Morning[0], id: 'mv', home: { day: 'Monday', period: 'Evening' } });
+v4.skipped = [{ item: { name: 'Choir', energy: 'green', fixed: true }, day: 'Wednesday', period: 'Evening' }];
+const m5 = migrate(JSON.parse(JSON.stringify(v4)));
+const cards = (sched) => DAYS.flatMap((d) => PERIODS.flatMap((p) => sched[d][p])).length;
+check('v4 save: every activity is kept', cards(m5.schedule) === cards(v4.schedule) && m5.version === 5 && !m5.skipped);
+check('v4 save: a weekly card moved "this week only" keeps its usual place', m5.series[findItem(m5.schedule, 'mv').item.seriesId].period === 'Evening' && !findItem(m5.schedule, 'mv').item.home);
+check('v4 save: a weekly activity cancelled this week comes back next week', Object.values(m5.series).some((x) => x.item.name === 'Choir' && x.day === 'Wednesday'));
+
 r = applyChange(st, { type: 'move', id: 's2', toDay: 'Friday', toPeriod: 'Morning' });
 check('movable activity moves', r.ok && findItem(r.state.schedule, 's2').day === 'Friday');
 check('original state untouched', findItem(st.schedule, 's2').day === 'Monday');
@@ -81,7 +171,7 @@ r = applyChange(cw, { type: 'place', id: leftId, toDay: 'Sunday', toPeriod: 'Eve
 check('place: a later activity goes into a day', r.ok && findItem(r.state.schedule, leftId)?.day === 'Sunday' && !r.state.leftovers.some((a) => a.id === leftId));
 const walkId = cw.schedule.Monday.Morning[0].id;
 const parked = applyChange(cw, { type: 'park', id: walkId });
-check('weekly activity can go to "Later this week", and is back home next week (not also in the tray)', parked.ok && findItem(startNewWeek(parked.state).schedule, walkId)?.day === 'Monday' && !startNewWeek(parked.state).leftovers.some((a) => a.id === walkId));
+check('a weekly activity can go to "Later this week" for this week only', parked.ok && /this week only/.test(parked.message) && parked.state.leftovers.some((a) => a.id === walkId) && Object.values(parked.state.series).some((x) => x.item.name === 'Walk + small groceries' && x.day === 'Monday'));
 check('lighter week: nothing to change in a balanced week', suggestBalance(cw.schedule).length === 0);
 const busy = JSON.parse(JSON.stringify(cw.schedule));
 busy.Monday.Evening = [{ id: 'big', name: 'Big shopping', energy: 'red' }];
@@ -99,13 +189,26 @@ const busy2 = JSON.parse(JSON.stringify(busy)); busy2.Monday.Morning.push({ id: 
 check('"Keep as it is" ends when something on that day changes', sigBefore === daySignature(busy, 'Monday') && sigBefore !== daySignature(busy2, 'Monday'));
 
 // Client feedback (Nov 3): "Move the Thursday medical appointment to Thursday morning" did nothing visible.
-// The appointment is weekly (fixed): it moves at once, for this week only, and the message says so.
+// The appointment is weekly: it moves at once, for this week only, and the message says so.
 const medId = findItem(cw.schedule, cw.schedule.Thursday.Afternoon.find((a) => a.name === 'Medical appointment').id).item.id;
 let pm = parse('Move the Thursday medical appointment to Thursday morning because the ABI clinic found me a spot', { library: cw.library, schedule: cw.schedule, now: NOW });
 check('voice: a reason after "because" is ignored', pm.length === 1 && pm[0].ok && pm[0].change.id === medId && pm[0].change.toPeriod === 'Morning', JSON.stringify(pm));
 const moved = applyChange(cw, pm[0].change);
 check('voice: the appointment moves to Thursday morning with no question', moved.ok && findItem(moved.state.schedule, medId)?.period === 'Morning');
 check('voice: the notice says it is for this week only', /this week only.*Thursday afternoon/.test(moved.notice));
+
+// Client feedback (Nov 4): her three "every week" requests, by voice.
+let vs = JSON.parse(JSON.stringify(cw));
+vs.shownWeek = W1;
+vs.library.push({ id: 'lib-cb', name: 'Clean Bathroom', energy: 'green', duration: 30 });
+vs.schedule.Sunday.Evening.push({ id: 'cbv', activityId: 'lib-cb', name: 'Clean Bathroom', energy: 'green', fixed: false });
+const say = (text) => { for (const x of parse(text, { library: vs.library, schedule: vs.schedule, now: NOW })) { const res = x.ok && applyChange(vs, x.change); if (res?.ok) vs = res.state; else return x.reason || res?.message; } return 'ok'; };
+const nextWk = () => weekFromSeries(vs.series);
+check('voice: "Make clean bathroom a weekly task on Sunday evening"', say('Make clean bathroom a weekly task on Sunday evening') === 'ok' && names(nextWk(), 'Sunday', 'Evening').join() === 'Clean Bathroom' && names(vs.schedule, 'Sunday', 'Evening').filter((n) => n === 'Clean Bathroom').length === 1);
+check('voice: "Add walk and small groceries every Friday afternoon"', say('Add walk and small groceries every Friday afternoon') === 'ok' && names(nextWk(), 'Friday', 'Afternoon').includes('Walk + small groceries'));
+check('voice: "Move my medical appointment to Thursday morning every week"', say('Move my medical appointment to Thursday morning every week') === 'ok' && names(nextWk(), 'Thursday', 'Morning').includes('Medical appointment') && !names(nextWk(), 'Thursday', 'Afternoon').includes('Medical appointment'));
+check('voice: "every week" words never become part of a new activity name', !vs.library.some((x) => /weekly|every|task/i.test(x.name)));
+check('voice: without "every week", a move stays this week only', say('Move church to Sunday afternoon') === 'ok' && names(nextWk(), 'Sunday', 'Morning').includes('Church'));
 check('voice: that move can be undone', findItem(applyChange(moved.state, moved.undo).state.schedule, medId)?.period === 'Afternoon');
 
 const parts = splitChanges({ id: 'meal', name: 'Meal prep (part)', energy: 'green' }, [{ name: 'meat' }, { name: 'vegetables' }, { name: 'rice' }], 'Saturday', 'Afternoon');
@@ -123,7 +226,8 @@ const upd = findItem(r.state.schedule, med.id).item;
 check('appointment questions and note are saved', r.ok && upd.questions.length === 1 && upd.afterNote === 'Come back in 2 weeks');
 const back3 = applyChange(r.state, r.undo);
 check('saving the card can be undone', back3.ok && !findItem(back3.state.schedule, med.id).item.questions && !findItem(back3.state.schedule, med.id).item.afterNote);
-check('update cannot change the name or energy', !applyChange(fw, { type: 'update', id: med.id, fields: { energy: 'red' } }).state.schedule.Thursday.Afternoon[0].energy.includes('red'));
+check('update cannot change the name', applyChange(fw, { type: 'update', id: med.id, fields: { name: 'Other' } }).state.schedule.Thursday.Afternoon[0].name === 'Medical appointment');
+check('update can change the colour (energy), not to an unknown level', applyChange(fw, { type: 'update', id: med.id, fields: { energy: 'red' } }).state.schedule.Thursday.Afternoon[0].energy === 'red' && !applyChange(fw, { type: 'update', id: med.id, fields: { energy: 'purple' } }).ok);
 const old = JSON.parse(JSON.stringify(fw)); old.library.forEach((a) => { delete a.appointment; delete a.quiet; }); old.version = 3;
 const mig = migrate(old);
 check('older saves get the appointment and quiet flags', mig.library.find((a) => a.id === 'medical').appointment === true && mig.library.find((a) => a.id === 'church').quiet === true);
