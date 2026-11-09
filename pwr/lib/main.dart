@@ -105,7 +105,7 @@ class _MyHomePageState extends State<MyHomePage> {
           mainAxisAlignment: .center,
           // AspectRatio( aspectRatio: 1.0,child: build())
           children: [
-            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly,children: [Image.asset('images/placeholder.png')],),
+            Row(mainAxisAlignment: MainAxisAlignment.spaceEvenly,children: [],),
             const Text('You have pushed the button this many times:'),
             Text(
               '$_counter',
