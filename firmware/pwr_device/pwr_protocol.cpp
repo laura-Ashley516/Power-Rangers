@@ -1,11 +1,19 @@
 // =====================================================================
 //  pwr_protocol.cpp  -  BLE server + every command of docs/protocol.md
 // =====================================================================
+//  The commands are the same for Bluetooth and Wi-Fi. Each queued line
+//  remembers its transport (SRC_BLE / SRC_WIFI); sendLine() answers on
+//  the transport of the line being handled. A transfer that goes on
+//  over several loop() calls (voice note, planner copy) remembers the
+//  transport it was started from.
+// =====================================================================
 #include "pwr_protocol.h"
 #include "pwr_config.h"
 #include "pwr_schedule.h"
 #include "pwr_storage.h"
 #include "pwr_clock.h"
+#include "pwr_base64.h"
+#include "pwr_wifi.h"
 #include "pwr_app.h"
 
 #include <BLEDevice.h>
@@ -17,13 +25,14 @@
 #include "freertos/queue.h"
 
 // ---------------------------------------------------------------------
-//  Incoming lines: BLE task -> queue -> loop()
+//  Incoming lines: BLE task / Wi-Fi code -> queue -> loop()
 // ---------------------------------------------------------------------
 const uint8_t RX_KIND_LINE       = 0;   // a text line from the app
-const uint8_t RX_KIND_DISCONNECT = 1;   // the app disconnected
+const uint8_t RX_KIND_DISCONNECT = 1;   // the app (BLE) or the broker (Wi-Fi) disconnected
 
 struct RxItem {
   uint8_t kind;
+  uint8_t source;   // SRC_BLE or SRC_WIFI
   char    text[RX_LINE_BUFFER + 1];
 };
 
@@ -32,28 +41,50 @@ static BLECharacteristic *txChar = nullptr;
 static BLEServer *bleServer = nullptr;
 static volatile bool bleConnected = false;
 static volatile uint16_t bleConnId = 0;
-static String partialLine;            // a message arriving in "+" pieces (small packets)
+static String partialLine;            // a BLE message arriving in "+" pieces (small packets)
 static volatile uint32_t droppedLines = 0;   // lines lost because the queue was full
+
+static uint8_t replySource = SRC_BLE; // transport of the line being handled right now
 
 // ---------------------------------------------------------------------
 //  Schedule transfer state
 // ---------------------------------------------------------------------
 static bool receivingSchedule = false;
+static uint8_t scheduleSource = SRC_BLE;
 static int  expectedCount = -1;       // count from SCHEDULE_START|n (-1 for v0)
 static int  tempCount = 0;            // valid lines received so far
 static Activity tempSchedule[MAX_ACTIVITIES];   // only copied over when complete
 static uint32_t lastScheduleLineMs = 0;
 
 // ---------------------------------------------------------------------
-//  Voice note transfer state
+//  Outgoing file transfer: a voice note (D lines) or the planner copy (S lines)
 // ---------------------------------------------------------------------
-static bool     sendingNote = false;
-static File     noteFile;
-static int      noteId = 0;
-static uint32_t noteSeq = 0;
-static uint32_t noteChunks = 0;
-static uint32_t noteSum = 0;          // sum of all raw bytes (sent modulo 65536)
-static int      noteChunkBytes = NOTE_CHUNK_BYTES;   // raw bytes per chunk, fitted to the packet size
+struct OutTransfer {
+  bool     active = false;
+  bool     isState = false;     // false = voice note, true = planner copy
+  uint8_t  source = SRC_BLE;    // transport it goes out on
+  File     file;
+  int      noteId = 0;
+  uint32_t seq = 0;
+  uint32_t chunks = 0;
+  uint32_t sum = 0;             // sum of all raw bytes (sent modulo 65536)
+  int      chunkBytes = NOTE_CHUNK_BYTES;   // raw bytes per chunk, fitted to the packet size
+};
+static OutTransfer sending;
+
+// ---------------------------------------------------------------------
+//  v3 planner copy being received (STATE_START, S lines, STATE_END)
+// ---------------------------------------------------------------------
+static bool        receivingState = false;
+static uint8_t     stateSource = SRC_BLE;
+static uint32_t    stateBytes = 0;      // announced size
+static uint32_t    stateChunks = 0;     // announced number of S lines
+static uint32_t    stateUnix = 0;       // announced time
+static uint32_t    stateGot = 0;        // bytes written so far
+static uint32_t    stateSeq = 0;        // next expected seq
+static uint32_t    stateSum = 0;
+static uint32_t    lastStateLineMs = 0;
+static const char *stateError = nullptr;   // why the last transfer stopped (answered at STATE_END)
 
 // ---------------------------------------------------------------------
 //  BLE callbacks. They run in the BLE task: keep them SHORT.
@@ -67,6 +98,7 @@ class RxCallbacks : public BLECharacteristicCallbacks {
 
     static RxItem item;   // static: keeps the BLE task stack small
     item.kind = RX_KIND_LINE;
+    item.source = SRC_BLE;
     size_t n = value.length();
     if (n > (size_t)RX_LINE_BUFFER) n = RX_LINE_BUFFER;
     memcpy(item.text, value.c_str(), n);
@@ -87,6 +119,7 @@ class ServerCallbacks : public BLEServerCallbacks {
     // schedule is thrown away (the old schedule stays).
     static RxItem item;
     item.kind = RX_KIND_DISCONNECT;
+    item.source = SRC_BLE;
     item.text[0] = '\0';
     xQueueSend(rxQueue, &item, 0);
     BLEDevice::startAdvertising();   // let the app reconnect
@@ -97,14 +130,31 @@ class ServerCallbacks : public BLEServerCallbacks {
 //  Small helpers
 // ---------------------------------------------------------------------
 
-// Largest message that fits in one Bluetooth packet right now (packet size - 3 bytes).
-// The packet size (MTU) is agreed with the iPad/laptop after connecting; 23 is the minimum.
-static int currentPayload() {
+static bool transportUp(uint8_t source) {
+  if (source == SRC_WIFI) return wifiIsOnline();
+  return bleConnected;
+}
+
+// Largest message that fits in one packet right now.
+// Bluetooth: packet size - 3 bytes. The packet size (MTU) is agreed with the
+// iPad/laptop after connecting; 23 is the minimum.
+// Wi-Fi: one MQTT message per line, so a big number (no "+" pieces).
+static int currentPayload(uint8_t source) {
+  if (source == SRC_WIFI) return wifiPayload();
   uint16_t mtu = (bleServer != nullptr && bleConnected) ? bleServer->getPeerMTU(bleConnId) : 0;
   int payload = (mtu > 3) ? (int)mtu - 3 : 20;
   if (payload < 20) payload = 20;
   if (payload > MAX_MESSAGE_LEN) payload = MAX_MESSAGE_LEN;
   return payload;
+}
+
+// Raw bytes per "D|seq|base64" or "S|seq|base64" line so it fits in one packet:
+// 4 base64 characters per 3 raw bytes, 8 characters for "D|12345|". Max 120.
+static int chunkBytesFor(uint8_t source) {
+  int n = ((currentPayload(source) - 8) / 4) * 3;
+  if (n > NOTE_CHUNK_BYTES) n = NOTE_CHUNK_BYTES;
+  if (n < 3) n = 3;
+  return n;
 }
 
 static void notifyBytes(const uint8_t *data, size_t n) {
@@ -113,27 +163,42 @@ static void notifyBytes(const uint8_t *data, size_t n) {
   delay(BLE_SEND_GAP_MS);
 }
 
-// Send one line to the app. If it is longer than one packet, it is cut into pieces:
-// every piece except the last starts with '+', and the app glues them back together.
-static void sendLine(const String &line, bool log = true) {
-  if (txChar == nullptr || !bleConnected) return;
+// Send one line to the app on the given transport.
+// Bluetooth: if it is longer than one packet, it is cut into pieces: every piece
+// except the last starts with '+', and the app glues them back together.
+// Wi-Fi: one encrypted MQTT message, never cut.
+static void sendLineTo(uint8_t source, const String &line, bool log = true) {
   size_t n = line.length();
   if (n > (size_t)MAX_MESSAGE_LEN) n = MAX_MESSAGE_LEN;
-  const uint8_t *p = (const uint8_t *)line.c_str();
-  size_t payload = (size_t)currentPayload();
-  uint8_t piece[MAX_MESSAGE_LEN + 1];
-  while (n > payload) {
-    piece[0] = '+';
-    memcpy(piece + 1, p, payload - 1);
-    notifyBytes(piece, payload);
-    p += payload - 1;
-    n -= payload - 1;
+
+  if (source == SRC_WIFI) {
+    if (!wifiSendLine(line.c_str(), n)) {
+      if (log) Serial.println("TX (Wi-Fi) failed: not online.");
+      return;
+    }
+  } else {
+    if (txChar == nullptr || !bleConnected) return;
+    const uint8_t *p = (const uint8_t *)line.c_str();
+    size_t payload = (size_t)currentPayload(SRC_BLE);
+    uint8_t piece[MAX_MESSAGE_LEN + 1];
+    while (n > payload) {
+      piece[0] = '+';
+      memcpy(piece + 1, p, payload - 1);
+      notifyBytes(piece, payload);
+      p += payload - 1;
+      n -= payload - 1;
+    }
+    notifyBytes(p, n);
   }
-  notifyBytes(p, n);
   if (log) {
-    Serial.print("TX: ");
+    Serial.print(source == SRC_WIFI ? "TX (Wi-Fi): " : "TX: ");
     Serial.println(line);
   }
+}
+
+// Reply to the line being handled, on the transport it came from.
+static void sendLine(const String &line, bool log = true) {
+  sendLineTo(replySource, line, log);
 }
 
 // field("TIME|123|-240", 1) -> "123". Empty if the field does not exist.
@@ -162,47 +227,22 @@ static bool isNumber(const String &s) {
   return true;
 }
 
+// True if the text is a whole number >= 0 (no sign).
+static bool isUnsigned(const String &s) {
+  return isNumber(s) && s.charAt(0) != '-';
+}
+
+static uint32_t toU32(const String &s) {
+  return (uint32_t)strtoul(s.c_str(), nullptr, 10);
+}
+
 static bool isCommand(const String &cmd) {
   return cmd == "HELLO" || cmd == "TIME" ||
          cmd == "SCHEDULE_START" || cmd == "SCHEDULE_END" ||
          cmd == "BACKUP_GET" || cmd == "NOTES_LIST" ||
          cmd == "NOTE_GET" || cmd == "NOTE_DEL" ||
-         cmd == "QUIET_START" || cmd == "Q" || cmd == "QUIET_END";
-}
-
-// Our own base64 encoder (standard alphabet, with '=' padding).
-// out must have room for 4 * ((len + 2) / 3) + 1 characters.
-static const char BASE64_TABLE[] =
-  "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-
-static size_t base64Encode(const uint8_t *in, size_t len, char *out) {
-  size_t o = 0;
-  size_t i = 0;
-  // Every 3 input bytes (24 bits) become 4 characters of 6 bits each.
-  while (i + 3 <= len) {
-    uint32_t v = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8) | in[i + 2];
-    out[o++] = BASE64_TABLE[(v >> 18) & 0x3F];
-    out[o++] = BASE64_TABLE[(v >> 12) & 0x3F];
-    out[o++] = BASE64_TABLE[(v >> 6) & 0x3F];
-    out[o++] = BASE64_TABLE[v & 0x3F];
-    i += 3;
-  }
-  size_t rest = len - i;
-  if (rest == 1) {
-    uint32_t v = (uint32_t)in[i] << 16;
-    out[o++] = BASE64_TABLE[(v >> 18) & 0x3F];
-    out[o++] = BASE64_TABLE[(v >> 12) & 0x3F];
-    out[o++] = '=';
-    out[o++] = '=';
-  } else if (rest == 2) {
-    uint32_t v = ((uint32_t)in[i] << 16) | ((uint32_t)in[i + 1] << 8);
-    out[o++] = BASE64_TABLE[(v >> 18) & 0x3F];
-    out[o++] = BASE64_TABLE[(v >> 12) & 0x3F];
-    out[o++] = BASE64_TABLE[(v >> 6) & 0x3F];
-    out[o++] = '=';
-  }
-  out[o] = '\0';
-  return o;
+         cmd == "QUIET_START" || cmd == "Q" || cmd == "QUIET_END" ||
+         cmd == "STATE_START" || cmd == "S" || cmd == "STATE_END" || cmd == "STATE_GET";
 }
 
 // ---------------------------------------------------------------------
@@ -210,6 +250,7 @@ static size_t base64Encode(const uint8_t *in, size_t len, char *out) {
 // ---------------------------------------------------------------------
 static void startSchedule(const String &line) {
   receivingSchedule = true;
+  scheduleSource = replySource;
   tempCount = 0;
   lastScheduleLineMs = millis();
   if (line.indexOf('|') >= 0) {
@@ -313,13 +354,189 @@ static void finishQuiet(const String &line) {
 }
 
 // ---------------------------------------------------------------------
+//  v3 planner copy, app -> device:
+//    STATE_START|<bytes>|<chunks>|<unix>, S|<seq>|<base64> (chunks lines), STATE_END|<sum16>
+//  Written to /state.tmp; only swapped in when size, every seq and the sum match.
+//  The only reply is at STATE_END: STATE_SAVED|<bytes> or ERR|STATE|<reason>.
+// ---------------------------------------------------------------------
+static void failState(const char *reason) {
+  if (receivingState) storageStateAbortWrite();
+  receivingState = false;
+  stateError = reason;
+  Serial.printf("Planner copy not saved (%s); the old copy stays.\n", reason);
+}
+
+static void startState(const String &line) {
+  if (receivingState) storageStateAbortWrite();   // a new START replaces an unfinished transfer
+  receivingState = false;
+  stateError = nullptr;
+
+  String bytesText = field(line, 1);
+  String chunksText = field(line, 2);
+  String unixText = field(line, 3);
+  if (!isUnsigned(bytesText) || !isUnsigned(chunksText)) {
+    stateError = "format";
+    Serial.println("STATE_START: bad numbers.");
+    return;
+  }
+  uint32_t bytes = toU32(bytesText);
+  uint32_t chunks = toU32(chunksText);
+  if (bytes == 0 || bytes > STATE_MAX_BYTES) {
+    stateError = "size";
+    Serial.printf("STATE_START: size %lu not allowed (max %lu).\n",
+                  (unsigned long)bytes, (unsigned long)STATE_MAX_BYTES);
+    return;
+  }
+  // At least 1 byte and at most NOTE_CHUNK_BYTES (120) bytes per chunk.
+  if (chunks == 0 || chunks > bytes || chunks * (uint32_t)NOTE_CHUNK_BYTES < bytes) {
+    stateError = "chunks";
+    Serial.println("STATE_START: chunk count does not fit the size.");
+    return;
+  }
+  if (!storageReady()) storageBegin();   // maybe the card was inserted later
+  if (!storageReady()) {
+    stateError = "nosd";
+    Serial.println("STATE_START: no SD card.");
+    return;
+  }
+  if (!storageStateBeginWrite()) {
+    stateError = "write";
+    return;
+  }
+  stateBytes = bytes;
+  stateChunks = chunks;
+  stateUnix = isUnsigned(unixText) ? toU32(unixText) : 0;
+  stateGot = 0;
+  stateSeq = 0;
+  stateSum = 0;
+  stateSource = replySource;
+  lastStateLineMs = millis();
+  receivingState = true;
+  Serial.printf("Receiving planner copy: %lu bytes in %lu chunks...\n",
+                (unsigned long)bytes, (unsigned long)chunks);
+  // No reply: the protocol only answers at STATE_END.
+}
+
+static void addStateChunk(const String &line) {
+  if (!receivingState) return;   // no transfer, or it already failed: ignore the rest
+  lastStateLineMs = millis();
+
+  int bar1 = line.indexOf('|');
+  int bar2 = (bar1 < 0) ? -1 : line.indexOf('|', bar1 + 1);
+  if (bar2 < 0) { failState("format"); return; }
+  String seqText = line.substring(bar1 + 1, bar2);
+  if (!isUnsigned(seqText) || toU32(seqText) != stateSeq) { failState("seq"); return; }
+
+  const char *b64 = line.c_str() + bar2 + 1;
+  size_t b64Len = line.length() - (size_t)(bar2 + 1);
+  uint8_t raw[(RX_LINE_BUFFER / 4) * 3 + 3];
+  int n = base64Decode(b64, b64Len, raw, sizeof(raw));
+  if (n <= 0) { failState("base64"); return; }
+  if (stateGot + (uint32_t)n > stateBytes) { failState("size"); return; }
+  if (!storageStateWrite(raw, (size_t)n)) { failState("write"); return; }
+
+  for (int i = 0; i < n; i++) stateSum += raw[i];
+  stateGot += (uint32_t)n;
+  stateSeq++;
+}
+
+static void finishState(const String &line) {
+  if (!receivingState) {
+    String reason = stateError ? stateError : "nostart";
+    stateError = nullptr;
+    sendLine("ERR|STATE|" + reason);
+    return;
+  }
+  receivingState = false;
+
+  String sumText = field(line, 1);
+  const char *problem = nullptr;
+  if (stateSeq != stateChunks) problem = "chunks";
+  else if (stateGot != stateBytes) problem = "size";
+  else if (!isUnsigned(sumText) || toU32(sumText) != (stateSum & 0xFFFF)) problem = "sum";
+
+  if (problem != nullptr) {
+    storageStateAbortWrite();
+    Serial.printf("Planner copy not saved (%s): got %lu bytes / %lu chunks. Old copy kept.\n",
+                  problem, (unsigned long)stateGot, (unsigned long)stateSeq);
+    sendLine(String("ERR|STATE|") + problem);
+    return;
+  }
+  if (!storageStateCommit(stateBytes, stateUnix)) {
+    sendLine("ERR|STATE|save");
+    return;
+  }
+  sendLine("STATE_SAVED|" + String(stateBytes));
+}
+
+// ---------------------------------------------------------------------
+//  Sending a file to the app, one chunk per loop()
+// ---------------------------------------------------------------------
+static void startOut(File f, bool isState, int noteId, uint32_t bytes) {
+  sending.file = f;
+  sending.isState = isState;
+  sending.noteId = noteId;
+  sending.source = replySource;
+  sending.seq = 0;
+  sending.sum = 0;
+  sending.chunkBytes = chunkBytesFor(replySource);
+  sending.chunks = (bytes + sending.chunkBytes - 1) / sending.chunkBytes;
+  sending.active = true;
+}
+
+static void stopOut() {
+  if (sending.file) sending.file.close();
+  sending.active = false;
+}
+
+// Sends the next "D|seq|base64" / "S|seq|base64" chunk, or the end line after the last one.
+static void pumpOut() {
+  if (!transportUp(sending.source)) {
+    Serial.println("Transfer stopped: the app is no longer connected.");
+    stopOut();
+    return;
+  }
+
+  if (sending.seq < sending.chunks) {
+    uint8_t raw[NOTE_CHUNK_BYTES];
+    size_t n = sending.file.read(raw, sending.chunkBytes);
+    if (n == 0) {
+      // Could not read (card removed?). The app will see missing chunks
+      // and can ask again.
+      Serial.println("Transfer: read error.");
+      if (sending.isState) sendLineTo(sending.source, "ERR|STATE|read");
+      else sendLineTo(sending.source, "ERR|NOTE|" + String(sending.noteId));
+      stopOut();
+      return;
+    }
+    for (size_t i = 0; i < n; i++) sending.sum += raw[i];
+
+    char b64[4 * ((NOTE_CHUNK_BYTES + 2) / 3) + 1];   // 161 bytes
+    base64Encode(raw, n, b64);
+
+    char msg[MAX_MESSAGE_LEN + 1];
+    snprintf(msg, sizeof(msg), "%s|%lu|%s", sending.isState ? "S" : "D", (unsigned long)sending.seq, b64);
+    sendLineTo(sending.source, String(msg), false);   // not logged: there are thousands
+    sending.seq++;
+  } else {
+    if (sending.isState) {
+      sendLineTo(sending.source, "STATE_DATA_END|" + String(sending.sum & 0xFFFF));
+    } else {
+      sendLineTo(sending.source, "DATA_END|" + String(sending.noteId) + "|" + String(sending.sum & 0xFFFF));
+    }
+    stopOut();
+  }
+}
+
+// ---------------------------------------------------------------------
 //  Other commands
 // ---------------------------------------------------------------------
 static void handleHello() {
-  // Last field: the packet payload, so the app knows when to cut its messages into pieces.
+  // Last field: the packet payload, so the app knows when to cut its messages into pieces
+  // (Bluetooth), or that it never needs to (Wi-Fi: 1024).
   String reply = "HELLO|" + String(PROTOCOL_VERSION) + "|" + DEVICE_NAME + "|" +
                  String(activityCount) + "|" + String(storageCountNotes()) + "|" +
-                 String(currentPayload());
+                 String(currentPayload(replySource));
   sendLine(reply);
 }
 
@@ -380,23 +597,15 @@ static void handleNoteGet(const String &line) {
     sendLine("ERR|NOTE|" + idText);
     return;
   }
-  noteFile = storageOpenNoteForReading(id);
-  if (!noteFile) {
+  File f = storageOpenNoteForReading(id);
+  if (!f) {
     sendLine("ERR|NOTE|" + idText);
     return;
   }
-  uint32_t bytes = (uint32_t)noteFile.size();
-  noteId = id;
-  noteSeq = 0;
-  noteSum = 0;
-  // "D|12345|" + base64 must fit in one packet: 4 base64 characters per 3 raw bytes.
-  noteChunkBytes = ((currentPayload() - 8) / 4) * 3;
-  if (noteChunkBytes > NOTE_CHUNK_BYTES) noteChunkBytes = NOTE_CHUNK_BYTES;
-  if (noteChunkBytes < 3) noteChunkBytes = 3;
-  noteChunks = (bytes + noteChunkBytes - 1) / noteChunkBytes;
-  sendingNote = true;
-  sendLine("DATA_START|" + String(id) + "|" + String(bytes) + "|" + String(noteChunks));
-  // The chunks are sent by pumpNoteTransfer(), one per loop().
+  uint32_t bytes = (uint32_t)f.size();
+  startOut(f, false, id, bytes);
+  sendLine("DATA_START|" + String(id) + "|" + String(bytes) + "|" + String(sending.chunks));
+  // The chunks are sent by pumpOut(), one per loop().
 }
 
 static void handleNoteDel(const String &line) {
@@ -415,43 +624,23 @@ static void handleNoteDel(const String &line) {
   }
 }
 
-static void stopNoteTransfer() {
-  if (noteFile) noteFile.close();
-  sendingNote = false;
-}
-
-// Sends the next "D|seq|base64" chunk, or DATA_END after the last one.
-static void pumpNoteTransfer() {
-  if (!bleConnected) {
-    Serial.println("Note transfer stopped: app disconnected.");
-    stopNoteTransfer();
+// v3: STATE_GET -> STATE_NONE, or STATE_DATA|bytes|chunks|unix + S lines + STATE_DATA_END|sum16
+static void handleStateGet() {
+  uint32_t bytes = 0;
+  uint32_t unixTime = 0;
+  if (!storageStateInfo(bytes, unixTime)) {
+    sendLine("STATE_NONE");
     return;
   }
-
-  if (noteSeq < noteChunks) {
-    uint8_t raw[NOTE_CHUNK_BYTES];
-    size_t n = noteFile.read(raw, noteChunkBytes);
-    if (n == 0) {
-      // Could not read (card removed?). The app will see missing chunks
-      // and can ask again with NOTE_GET.
-      Serial.println("Note transfer: read error.");
-      sendLine("ERR|NOTE|" + String(noteId));
-      stopNoteTransfer();
-      return;
-    }
-    for (size_t i = 0; i < n; i++) noteSum += raw[i];
-
-    char b64[4 * ((NOTE_CHUNK_BYTES + 2) / 3) + 1];   // 161 bytes
-    base64Encode(raw, n, b64);
-
-    char msg[MAX_MESSAGE_LEN + 1];
-    snprintf(msg, sizeof(msg), "D|%lu|%s", (unsigned long)noteSeq, b64);
-    sendLine(String(msg), false);   // not logged: there are thousands
-    noteSeq++;
-  } else {
-    sendLine("DATA_END|" + String(noteId) + "|" + String(noteSum & 0xFFFF));
-    stopNoteTransfer();
+  File f = storageOpenStateForReading();
+  if (!f) {
+    sendLine("STATE_NONE");
+    return;
   }
+  bytes = (uint32_t)f.size();
+  startOut(f, true, 0, bytes);
+  sendLine("STATE_DATA|" + String(bytes) + "|" + String(sending.chunks) + "|" + String(unixTime));
+  // The S lines are sent by pumpOut(), one per loop().
 }
 
 // ---------------------------------------------------------------------
@@ -469,6 +658,10 @@ static void handleCommand(const String &cmd, const String &line) {
   else if (cmd == "QUIET_START")    startQuiet(line);
   else if (cmd == "Q")              addQuietLine(line);
   else if (cmd == "QUIET_END")      finishQuiet(line);
+  else if (cmd == "STATE_START")    startState(line);
+  else if (cmd == "S")              addStateChunk(line);
+  else if (cmd == "STATE_END")      finishState(line);
+  else if (cmd == "STATE_GET")      handleStateGet();
   else {
     String shortCmd = cmd;
     if (shortCmd.length() > 150) shortCmd = shortCmd.substring(0, 150);
@@ -479,8 +672,11 @@ static void handleCommand(const String &cmd, const String &line) {
 static void handleLine(String line) {
   line.trim();
   if (line.length() == 0) return;
-  Serial.print("RX: ");
-  Serial.println(line);
+  bool chunk = line.startsWith("S|");   // planner copy chunks are not logged: there are hundreds
+  if (!chunk) {
+    Serial.print(replySource == SRC_WIFI ? "RX (Wi-Fi): " : "RX: ");
+    Serial.println(line);
+  }
 
   String cmd = field(line, 0);
 
@@ -491,6 +687,22 @@ static void handleLine(String line) {
     return;
   }
   handleCommand(cmd, line);
+}
+
+// A transport went away: drop what was half-received from it.
+static void transportGone(uint8_t source) {
+  if (source == SRC_BLE) {
+    Serial.println("BLE disconnected; advertising again.");
+    partialLine = "";
+  } else {
+    Serial.println("Wi-Fi: broker connection lost.");
+  }
+  if (receivingSchedule && scheduleSource == source) {
+    receivingSchedule = false;
+    Serial.println("Schedule transfer interrupted; old schedule kept.");
+  }
+  if (receivingState && stateSource == source) failState("disconnected");
+  // An outgoing transfer notices it in pumpOut().
 }
 
 // ---------------------------------------------------------------------
@@ -526,17 +738,49 @@ void protocolBegin() {
   Serial.println("BLE advertising started as \"" DEVICE_NAME "\".");
 }
 
+// Called by the Wi-Fi code (main task) with one decrypted line.
+bool protocolQueueLine(uint8_t source, const char *text, size_t len) {
+  if (rxQueue == nullptr) return false;
+  if (len > (size_t)RX_LINE_BUFFER) {
+    Serial.printf("RX: line of %u bytes is too long; ignored.\n", (unsigned)len);
+    return false;
+  }
+  static RxItem item;   // not the same static as the BLE callback's
+  item.kind = RX_KIND_LINE;
+  item.source = source;
+  memcpy(item.text, text, len);
+  item.text[len] = '\0';
+  if (xQueueSend(rxQueue, &item, 0) != pdTRUE) {
+    droppedLines++;
+    return false;
+  }
+  return true;
+}
+
+void protocolTransportLost(uint8_t source) {
+  if (rxQueue == nullptr) return;
+  static RxItem item;
+  item.kind = RX_KIND_DISCONNECT;
+  item.source = source;
+  item.text[0] = '\0';
+  xQueueSend(rxQueue, &item, 0);
+}
+
 void protocolLoop() {
   // A schedule transfer that stopped halfway is thrown away after a while.
   if (receivingSchedule && millis() - lastScheduleLineMs > SCHEDULE_RX_TIMEOUT_MS) {
     receivingSchedule = false;
     Serial.println("Schedule transfer timed out; old schedule kept.");
   }
+  // Same for the planner copy (the old /state.bin stays).
+  if (receivingState && millis() - lastStateLineMs > STATE_RX_TIMEOUT_MS) {
+    failState("timeout");
+  }
 
-  // While a note is being sent, send one chunk per loop() and leave the
-  // other messages in the queue (the app waits for DATA_END anyway).
-  if (sendingNote) {
-    pumpNoteTransfer();
+  // While a file is being sent, send one chunk per loop() and leave the
+  // other messages in the queue (the app waits for the end line anyway).
+  if (sending.active) {
+    pumpOut();
     return;
   }
 
@@ -545,30 +789,30 @@ void protocolLoop() {
   while (handled < 10 && xQueueReceive(rxQueue, &item, 0) == pdTRUE) {
     handled++;
     if (item.kind == RX_KIND_DISCONNECT) {
-      Serial.println("BLE disconnected; advertising again.");
-      partialLine = "";
-      if (receivingSchedule) {
-        receivingSchedule = false;
-        Serial.println("Schedule transfer interrupted; old schedule kept.");
+      transportGone(item.source);
+      continue;
+    }
+    replySource = item.source;
+    if (item.source == SRC_BLE) {
+      if (item.text[0] == '+') {
+        // A piece of a longer message: keep it (untrimmed) until the last piece arrives.
+        if (partialLine.length() < 600) partialLine += String(item.text + 1);
+        continue;
       }
-      continue;
+      String line = partialLine + String(item.text);
+      partialLine = "";
+      handleLine(line);
+    } else {
+      handleLine(String(item.text));   // Wi-Fi: one MQTT message = one whole line, no pieces
     }
-    if (item.text[0] == '+') {
-      // A piece of a longer message: keep it (untrimmed) until the last piece arrives.
-      if (partialLine.length() < 600) partialLine += String(item.text + 1);
-      continue;
-    }
-    String line = partialLine + String(item.text);
-    partialLine = "";
-    handleLine(line);
-    if (sendingNote) break;   // start sending the note on the next loop()
+    if (sending.active) break;   // start sending the file on the next loop()
   }
 }
 
 bool protocolIsConnected() {
-  return bleConnected;
+  return bleConnected || wifiIsOnline();
 }
 
 bool protocolIsBusy() {
-  return sendingNote || receivingSchedule;
+  return sending.active || receivingSchedule || receivingState;
 }

@@ -14,9 +14,9 @@ import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, o
 import { printWeek, printDay, printGuide, renderPrintArea } from './print.js';
 import { renderGuide } from './guide.js';
 import { openAppointmentCard } from './ui-appointment.js';
-import { connect, disconnect, sync, renderDemoPanel, renderConnection, wireConnection } from './ui-device.js';
+import { connect, disconnect, sync, renderDemoPanel, renderConnection, wireConnection, scheduleAutoBackup, startNotePickup } from './ui-device.js';
 import { openVoiceModal } from './voice/recorder.js';
-import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCount } from './voice/inbox.js';
+import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCount, refreshWaiting } from './voice/inbox.js';
 import { preload, onStatus } from './voice/transcribe.js';
 import { onNotesChanged } from './voice/notes.js';
 import { t, tDay, dayInText, setLang, translatePage, fmtDate, fmtTime, tPeriod } from './i18n.js';
@@ -76,6 +76,19 @@ function applySettings() {
   $('demoModeToggle').setAttribute('aria-checked', isDemo());
   $('demoBanner').classList.toggle('hidden', !isDemo());
   renderSaveLine();
+  applyLayout();
+}
+
+// Week or One day on the main schedule screen (the choice is remembered).
+function applyLayout() {
+  const day = ctx.state.settings.layout === 'day';
+  $('weeklyView').classList.toggle('layout-day', day); // CSS hides the grid and its legend (the grid redraws its own classes)
+  $('dayPanel').classList.toggle('hidden', !day);
+  document.querySelectorAll('[data-layout]').forEach((b) => b.setAttribute('aria-pressed', String(b.dataset.layout === (day ? 'day' : 'week'))));
+}
+function setLayout(layout) {
+  if (ctx.state.settings.layout !== layout) commit({ ...ctx.state, settings: { ...ctx.state.settings, layout } });
+  applyLayout();
 }
 
 // "Saved on this iPad · 10:42 · Device: up to date" (client: she was not sure her changes were kept or sent).
@@ -84,9 +97,11 @@ function renderSaveLine() {
   if (!el) return;
   const s = ctx.state;
   const saved = ctx.saveFailed ? t('Could not save') : t('Saved on this iPad · {time}', { time: fmtTime(new Date(s.updatedAt || Date.now())) });
-  const dev = s.deviceSync?.at ? (s.deviceSync.sig === deviceSignature({ schedule: scheduleFor(0) }) ? t('Device: up to date') : t('Device: not sent yet')) : '';
+  // The device line: when it last got the full copy (v3), else whether it has this week.
+  const dev = s.deviceBackup?.at ? t('Copy on the device · {time}', { time: fmtTime(new Date(s.deviceBackup.at)) })
+    : s.deviceSync?.at ? (s.deviceSync.sig === deviceSignature({ schedule: scheduleFor(0) }) ? t('Device: up to date') : t('Device: not sent yet')) : '';
   el.textContent = [saved, dev].filter(Boolean).join(' · ');
-  el.classList.toggle('warn', !!ctx.saveFailed || (dev && s.deviceSync.sig !== deviceSignature({ schedule: scheduleFor(0) })));
+  el.classList.toggle('warn', !!ctx.saveFailed || (!s.deviceBackup?.at && !!s.deviceSync?.at && s.deviceSync.sig !== deviceSignature({ schedule: scheduleFor(0) })));
 }
 
 
@@ -104,18 +119,18 @@ onRender(renderLibrary);
 onRender(renderQuietSettings);
 onRender(renderBanner);
 onRender(renderPrintArea);
+onRender(scheduleAutoBackup); // a copy on the device a few seconds after each change (v3)
+document.addEventListener('pwr-backup', () => renderSaveLine());
 onRender(() => { if (!$('voiceView').classList.contains('hidden')) renderVoiceView(); });
 
 export function showView(name) {
-  // "One day" is the end of the week page (client feedback, Nov 2026): it opens the week and goes down to it.
-  const toDay = name === 'daily';
-  if (toDay) name = 'weekly';
+  // "One day" is a layout of the main schedule screen, chosen with the switch at the top (team decision, Nov 2026).
+  if (name === 'daily') { setLayout('day'); name = 'weekly'; }
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   $(name + 'View').classList.remove('hidden');
-  document.querySelectorAll('.navbtn').forEach((b) => b.classList.toggle('active', b.dataset.view === (toDay ? 'daily' : name)));
+  document.querySelectorAll('.navbtn').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
   if (name !== 'weekly' && ctx.placing) cancelPlacing();
   if (name === 'weekly') { renderWeek(); renderDaily(); }
-  if (toDay) { $('dayPanel').scrollIntoView({ block: 'start' }); return; }
   if (name === 'voice') renderVoiceView();
   if (name === 'device') { renderDemoPanel(); renderConnection(); }
   if (name === 'settings') renderSafety();
@@ -133,10 +148,11 @@ $('todayWeekBtn').onclick = () => changeWeek(0);
 $('undoBtn').onclick = undo;
 $('voiceBtn').onclick = openVoiceModal;
 $('voiceRecordBtn2').onclick = openVoiceModal;
-$('processNotesBtn').onclick = () => processAll().then(renderVoiceView);
+$('processNotesBtn').onclick = () => processAll().then(() => { renderVoiceView(); refreshWaiting(); });
 $('printBtn').addEventListener('click', printWeek);
 $('dailyPrint').addEventListener('click', () => printDay(shownDay()));
 $('suggestBtn').onclick = () => toggleSuggestions();
+document.querySelectorAll('[data-layout]').forEach((b) => (b.onclick = () => setLayout(b.dataset.layout)));
 $('photoBtn').onclick = openPhoto;
 const setLanguage = (lang) => {
   setLang(lang);
@@ -273,7 +289,7 @@ document.addEventListener('click', (e) => {
   const grp = t.closest('[data-day-group]');
   if (grp) { toggleGroup(grp.dataset.dayGroup); return; }
   const od = t.closest('[data-open-day]');
-  if (od) { showDay(od.dataset.openDay); if (!od.closest('#dayPanel')) showView('daily'); return; }
+  if (od) { showDay(od.dataset.openDay); if (!od.closest('#dayPanel')) setLayout('day'); return; }
   if (t.closest('[data-suggest-hide]')) { toggleSuggestions(false); return; }
   if (t.closest('[data-open-balance]')) { openBalance(); return; }
   const keep = t.closest('[data-keep-day]');
@@ -393,8 +409,10 @@ commit(ctx.state);
 updateClock();
 setInterval(() => { updateClock(); renderDaily(); }, 60000); // "Now" moves on through the day
 startReminders();
+startNotePickup(); // over Wi-Fi: the device's voice notes arrive by themselves
 maybeStartTutorial();
 updateCount();
+refreshWaiting();
 requestPersistence().then((r) => {
   $('persistStatus').textContent = r === 'granted' ? t('Kept permanently: the browser will not clear it on its own.')
     : r === 'not granted' ? t('The browser may clear it after a long time without use. Keep the device synced and save a backup now and then.')

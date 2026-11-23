@@ -4,7 +4,8 @@
 //
 // Layout (like a phone day planner): the day's name in large letters, a strip of the 7 days to tap,
 // then Morning / Afternoon / Evening as groups that open and close, each activity as one simple card:
-// picture, name, time ("10:00 → 11:00") and its energy shape.
+// picture, name, time ("10:00 → 11:00") and its energy shape WITH its word ("★ High"): team decision (item 13 A),
+// so the shape never has to be guessed; the legend stays under the week and on paper.
 // - On today, the current time of day is marked "Now" and opened; times of day already over are closed.
 // - Tapping a card opens the same menu as in the week (move, split, every week, remove).
 // - Every group is a drop zone and can be tapped to add, like the week.
@@ -19,12 +20,11 @@ import { ctx, change } from './context.js';
 import { checkDay, sortByTime } from './rules.js';
 import { uid } from './store.js';
 import { $, esc, shape, energyLabel, dayName, dateKey, currentPeriodIndex, orderedDays } from './ui-kit.js';
-import { dateForDay, budgetHtml } from './ui-week.js';
+import { dateForDay, budgetHtml, PERIOD_ICON } from './ui-week.js';
 import { iconFor } from './icons.js';
 import { t, tDay, tPeriod, fmtDate, clock } from './i18n.js';
 
 const days = () => orderedDays(ctx.state.settings.weekStart);
-const PERIOD_ICON = { Morning: '☀️', Afternoon: '🌤️', Evening: '🌙' };
 
 // The day shown: chosen in the strip, else today (this week) or the first day (another week).
 export function shownDay() {
@@ -53,7 +53,7 @@ function card(a, day, period, i) {
   return `<div class="activity-card day-card ${e}" tabindex="0" role="button" draggable="true" aria-label="${esc(label)}" data-card-type="scheduled" data-id="${esc(a.id)}" data-day="${day}" data-period="${period}" data-index="${i}">
     <span class="day-icon e-${e}" aria-hidden="true">${iconFor(a)}</span>
     <span class="day-text"><span class="day-name-line">${esc(a.name)}</span>${when ? `<span class="day-when">${esc(when)}</span>` : ''}</span>
-    <span class="day-shape" title="${esc(energyLabel(e))}">${shape(e)}</span></div>`;
+    <span class="day-shape e-word-${e}">${shape(e)}<span class="day-energy">${esc(energyLabel(e))}</span></span></div>`;
 }
 
 export function toggleGroup(period) {
@@ -96,7 +96,7 @@ export function renderDaily() {
     const list = sortByTime(ctx.state.schedule[day][period] || []);
     const now = isToday && i === Math.max(0, pi) && pi <= 2;
     const open = isOpen(period);
-    const chip = `<button type="button" class="period-chip p-${period.toLowerCase()}${now ? ' now' : ''}" data-day-group="${period}" aria-expanded="${open}"><span aria-hidden="true">${PERIOD_ICON[period]}</span> ${esc(tPeriod(period).toUpperCase())} (${list.length})${now ? ` <b class="now-tag">${t('Now')}</b>` : ''} <span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span></button>`;
+    const chip = `<button type="button" class="period-chip p-${period.toLowerCase()}${now ? ' now' : ''}" data-day-group="${period}" aria-expanded="${open}">${PERIOD_ICON[period]} ${esc(tPeriod(period).toUpperCase())} (${list.length})${now ? ` <b class="now-tag">${t('Now')}</b>` : ''} <span class="chev" aria-hidden="true">${open ? '▾' : '▸'}</span></button>`;
     const body = list.length ? list.map((a, idx) => card(a, day, period, idx)).join('') : `<div class="slot-hint">${t('Free. Tap to add an activity.')}</div>`;
     return `<section class="day-group${now ? ' now' : ''}" aria-label="${esc(tPeriod(period))}">${chip}${open ? `<div class="slot day-slot" data-day="${day}" data-period="${period}">${body}</div>` : ''}</section>`;
   }).join('');

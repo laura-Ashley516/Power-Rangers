@@ -16,7 +16,7 @@ import { t, tDay, tPeriod, where, fmtDate, clock, dayInText } from './i18n.js';
 export function slotId(day, period) { return `slot-${day}-${period}`; }
 
 const svg = (body) => `<svg class="icon period-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${body}</svg>`;
-const PERIOD_ICON = {
+export const PERIOD_ICON = {
   Morning: svg('<circle cx="12" cy="12" r="4"/><path d="M12 2.5v2.5M12 19v2.5M4.6 4.6l1.8 1.8M17.6 17.6l1.8 1.8M2.5 12H5M19 12h2.5M4.6 19.4l1.8-1.8M17.6 6.4l1.8-1.8"/>'),
   Afternoon: svg('<path d="M3 17h18"/><path d="M7 17a5 5 0 0 1 10 0"/><path d="M12 6.5V9M5.6 10.6l1.6 1.6M18.4 10.6l-1.6 1.6"/>'),
   Evening: svg('<path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/>'),

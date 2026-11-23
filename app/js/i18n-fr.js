@@ -548,6 +548,32 @@ export const FR = {
   'Done:': 'Fait :',
   'Not changed:': 'Pas changé :',
 
+  // ---------- voice: her OK first (v0.10) ----------
+  'Voice notes understood. Press “Do them” on the week to make the changes.': 'Notes vocales comprises. Appuyez sur « Les faire » dans la semaine pour faire les changements.',
+  'Do them all': 'Tout faire',
+  'Yes, do it': 'Oui, fais-le',
+  'Nothing waiting for your OK.': 'Rien n’attend votre accord.',
+  'Do them': 'Les faire',
+  'See them first': 'Les voir d’abord',
+  'Done.': 'Fait.',
+  'Done, except what I could not place (see “To sort”).': 'Fait, sauf ce que je n’ai pas pu placer (voir « À trier »).',
+  'Should I do this?': 'Est-ce que je fais ceci?',
+  'No': 'Non',
+  'Nothing was changed.': 'Rien n’a été changé.',
+  'Waiting for your OK': 'En attente de votre accord',
+  'What I understood from your voice notes. Nothing changes until you press “Yes, do it”.': 'Ce que j’ai compris de vos notes vocales. Rien ne change avant que vous appuyiez sur « Oui, fais-le ».',
+  'More accurate (about 80 MB, default)': 'Plus précis (environ 80 Mo, par défaut)',
+  'Show': 'Afficher',
+  '{n} change is waiting for your OK.': '{n} changement attend votre accord.',
+  '{n} changes are waiting for your OK.': '{n} changements attendent votre accord.',
+  '{n} voice notes done.': '{n} notes vocales faites.',
+  '{n} voice note done.': '{n} note vocale faite.',
+
+  // ---------- automatic copy on the device (v3) ----------
+  'Copy on the device · {time}': 'Copie sur l’appareil · {time}',
+  'Your planner has a copy on the device (saved {date}). Put it back on this iPad?': 'Votre planificateur a une copie sur l’appareil (enregistrée le {date}). La remettre sur cet iPad?',
+  'Your planner was put back from the device.': 'Votre planificateur a été remis à partir de l’appareil.',
+
   // ---------- index.html (fixed text) ----------
   'My Week, My Way': 'Ma semaine, à ma façon',
   'Print': 'Imprimer',

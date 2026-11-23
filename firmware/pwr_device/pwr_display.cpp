@@ -247,7 +247,8 @@ void displayStatus(const DeviceStatus &st) {
   tft.setTextSize(1);
   tft.setTextColor(ILI9341_LIGHTGREY);
   tft.setCursor(8, STATUS_Y);
-  tft.print(st.connected ? "Connected" : "Not connected");
+  if (st.wifiSetup) tft.print("Join PWR-Setup");
+  else tft.print(st.connected ? "Connected" : "Not connected");
   tft.print("  ");
   if (!st.sdOk) {
     tft.print("No SD card");

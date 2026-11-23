@@ -38,7 +38,7 @@ function show(r, { buzz = true } = {}) {
   if (!el) return;
   shown = r;
   const when = r.time ? clock(r.time) : `${tPeriod(r.period).toLowerCase()} (${clock(hhmm(r.start))})`;
-  el.innerHTML = `<div class="reminder"><span class="reminder-bell" aria-hidden="true">🔔</span><div><strong>${esc(t('Coming up: {when}', { when }))}</strong><div class="reminder-items">${r.items.map((a) => `<span>${iconFor(a)} ${esc(a.name)}</span>`).join('')}</div></div><button type="button" class="primary" id="reminderOk">${t('OK')}</button></div>`;
+  el.innerHTML = `<div class="reminder"><span class="reminder-bell" aria-hidden="true">🔔</span><div><strong>${esc(t('Coming up: {when}', { when }))}</strong><div class="reminder-items">${r.items.map((a) => `<span class="rem-item"><span class="rem-icon e-${esc(a.energy)}">${iconFor(a)}</span> ${esc(a.name)}</span>`).join('')}</div></div><button type="button" class="primary" id="reminderOk">${t('OK')}</button></div>`;
   $('reminderOk').onclick = () => { markSeen(dateKey(new Date()) + ':' + r.id); el.innerHTML = ''; shown = null; checkReminders(); };
   // Vibrate (where the browser can) only after she has used the page: browsers block it before that.
   if (buzz && !r.quiet && navigator.userActivation?.hasBeenActive) navigator.vibrate?.([300, 300, 300, 300, 300]);

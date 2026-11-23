@@ -18,10 +18,11 @@ const memory = new Map();
 globalThis.localStorage ??= { getItem: (k) => memory.get(k) ?? null, setItem: (k, v) => memory.set(k, String(v)), removeItem: (k) => memory.delete(k) };
 
 const { FakeTransport } = await import('../app/js/device.js');
-const { normalizeCode, topicId, topicsFor } = await import('../app/js/device-wifi.js');
+const { normalizeCode, topicId, topicsFor, e2eKey, seal, open } = await import('../app/js/device-wifi.js');
 
 export async function startFakeDevice({ code, broker, username, password, notes = [], log = console.log }) {
   const topics = topicsFor(await topicId(code));
+  const key = await e2eKey(code); // v3: every line end-to-end encrypted, like the firmware
   FakeTransport.payload = 1024; // over Wi-Fi the device reports a big payload: no "+" pieces
   notes.forEach((bytes) => FakeTransport.addRecording(bytes));
   const fake = new FakeTransport();
@@ -33,12 +34,16 @@ export async function startFakeDevice({ code, broker, username, password, notes 
     clientId: 'pwr-dev-' + Math.random().toString(36).slice(2, 10),
     will: { topic: topics.status, payload: 'offline', retain: true, qos: 1 },
   });
-  fake.onPacket = (bytes) => client.publish(topics.toApp, Buffer.from(bytes), { qos: 1 });
-  client.on('message', (topic, payload) => {
-    const line = payload.toString();
+  let out = Promise.resolve();
+  fake.onPacket = (bytes) => { out = out.then(async () => client.publish(topics.toApp, await seal(key, topics.toApp, new TextDecoder().decode(bytes)), { qos: 1 })); };
+  let inChain = Promise.resolve();
+  client.on('message', (topic, payload) => { inChain = inChain.then(async () => {
+    const plain = await open(key, topic, payload);
+    if (!plain) { log('ignored a message that was not sealed with this pairing code'); return; }
+    const line = new TextDecoder().decode(plain);
     log('app →', line.length > 60 ? line.slice(0, 60) + '…' : line);
-    fake.send(line).catch((e) => log('error:', e.message));
-  });
+    await fake.send(line).catch((e) => log('error:', e.message));
+  }); });
   await new Promise((resolve, reject) => { client.once('connect', resolve); client.once('error', reject); });
   await client.subscribeAsync(topics.toDevice, { qos: 1 });
   await client.publishAsync(topics.status, 'online', { retain: true, qos: 1 });

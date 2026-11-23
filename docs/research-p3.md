@@ -1,5 +1,7 @@
 # Prototype 3: research notes and recommendations (Nov 2026)
 
+> **Team decisions (Nov 23):** voice stays for everyone, and for the client the reminder device is the fallback; nothing is sent online (no cloud speech, no Apple dictation pushed by us); recording stops after **4 s** of silence; longest note **15 s** on both the iPad and the device; voice changes wait for **one tap ("Yes, do it")**; one language per planner (English by default, French for the public); the **more accurate** speech model by default; no reminder at the start time; calm line drawings instead of emoji; One day is a switch at the top of the schedule; photo reading is for other users; firmware: **compile and test first**, then Wi-Fi; backups **automatic**, never her job.
+
 Items from the change list that needed more information before being built. Each one says **what we know**, **the options**, and **what we recommend**. Numbers marked *(measure)* must be checked on our own hardware.
 
 ---
@@ -54,26 +56,31 @@ Items from the change list that needed more information before being built. Each
 | C. Web Speech API (Safari's speech recognition) | no | audio goes to Apple | medium |
 | D. Send the audio to a server (or a cloud speech service) | no | audio leaves the iPad | large, and against "nothing sent online" |
 
-**Recommendation:** at Design Day, try Whisper on her iPad once (2 min). If it fails, show her **B**: it needs no new code and works on every iPad. We can make "Type instead" more visible with a microphone hint (a small change).
+**Recommendation:** at Design Day, try Whisper on her iPad once (2 min).
+
+**Decided (Nov 23):** nothing goes online, so B/C/D are not offered by the planner. For her, the reminder device is the fallback. **Important:** the device records, but the *understanding* still happens on the iPad (Whisper). If Whisper cannot run on her iPad at all, device notes will also wait in "Voice notes" without being understood. If that happens, the honest options are: a newer iPad, the small model (40 MB, Settings → Voice understanding), or understanding the device's notes on the laptop at a visit.
 
 ---
 
 ## 3. "Hey Cal": start listening by voice, like Siri or Alexa (item 15)
 
-**What a wake word needs:** the microphone open **all the time** and a very small model that only recognises "Hey Cal" / "Hé Cal", on the iPad or on the device.
+**What a wake word needs:** the microphone open **all the time** and a very small model that only recognises "Hey Cal" / "Hé Cal", on the iPad or on the device. On the iPad a web page can only listen **while it is open and on screen** (iPadOS stops the microphone in the background or when the screen locks), whatever engine we choose.
 
-**On the iPad (the planner):**
-- A web page can only listen **while it is open and on screen**; iPadOS stops the microphone when the planner is in the background or the screen locks. So "Hey Cal" would work only while the planner is open, like a kitchen display.
-- **Picovoice Porcupine** (Web SDK) runs a custom wake word in the browser, offline, in English **and** French. The phrase "Hey Cal" is trained in their online console in minutes. It needs a free *AccessKey*, which needs an account (free for personal / non-commercial use; **you or the team must create it**, we cannot do it for you). Then about a day of work: switch in Settings ("Listen for Hey Cal"), wake word → the same recording window as the Voice note button, which then stops by itself.
-- Battery: an always-open microphone uses the iPad battery while the planner is open; a switch lets her turn it off.
+**Privacy of each option** ("nothing sent online"):
 
-**On the device:**
-- Our ESP32 (classic) has no wake-word engine that we can use. Espressif's WakeNet runs on the **ESP32-S3**, and custom words ("Hey Cal") are a paid Espressif service; a few free English words exist ("Hi ESP").
-- Option for a later version: ESP32-S3 board + WakeNet with a free preset word, or keep the **hold-to-record button** (simplest for her, no false triggers, no battery cost).
+| Option | Audio leaves the iPad? | Anything else online? | Account? | French? | Notes |
+|---|---|---|---|---|---|
+| **Picovoice Porcupine (Web)** | **No**: detection runs in the page | Yes: the *AccessKey* is checked with Picovoice's server (licence and usage counts, no audio) | Yes (free personal tier; we cannot create it for you) | Yes | Easiest: "Hey Cal" trained in their console in minutes |
+| **openWakeWord** (open source, Apache 2.0) | **No** | **Nothing** | No | Train our own model | We train "Hey Cal" ourselves (a free Colab notebook makes synthetic voices); runs in the browser with ONNX Runtime Web. A few days of work, fully private |
+| **Vosk (vosk-browser)** with a 2-word grammar | **No** | Nothing (model downloaded once, ~40 MB) | No | Yes (French model) | Small speech recogniser told to listen only for "hey cal"; more false alarms than a true wake-word model |
+| TensorFlow.js speech commands (transfer learning) | No | Nothing | No | Any (we record examples) | Trained in the browser from ~50 recordings of her saying it; less accurate with noise |
+| Web Speech API / Siri | **Yes** | — | No | Yes | Breaks the privacy rule |
 
-**Recommendation:** iPad: Porcupine, only while the planner is open, with an on/off switch (needs the free account first). Device: keep the button for Prototype 3.
+**On the device:** our ESP32 (classic) is too small for any of these. **microWakeWord** (open source, used by Home Assistant) or Espressif **WakeNet** run on an **ESP32-S3**; custom words in WakeNet are a paid Espressif service, microWakeWord can be trained ourselves. That means a new board.
 
----
+**Answer to "does Picovoice respect privacy?":** the audio does, nothing you say leaves the iPad. But it is not *completely* offline: the key is checked with Picovoice over the internet, and it needs an account. **So no, it is not the only option:** **openWakeWord** is the fully private one (no account, nothing online), at the cost of training the "Hey Cal" model ourselves.
+
+**Recommendation:** openWakeWord in the planner (switch in Settings, "Listen for Hey Cal", only while the planner is open); keep the hold-to-record button on the device for Prototype 3; consider an ESP32-S3 + microWakeWord for a later device.
 
 ## 4. Saving and syncing: what happens today, and what to add (item 17)
 
@@ -94,7 +101,7 @@ Items from the change list that needed more information before being built. Each
 - **B.** Sync automatically when the planner opens if the device is in reach (Wi-Fi), so the device copy is always recent. *Medium, needs the Wi-Fi firmware.*
 - **C.** Encrypted cloud copy through the same relay as Wi-Fi sync (the pairing code is the key), restored on a new iPad with the code. *Large; privacy review needed.*
 
-**Recommendation:** A now (before Design Day); B after the Wi-Fi firmware is on the device.
+**Done in v0.10 (decision Nov 23: automatic, never her job, data never at risk):** the planner copies **itself, whole** (all weeks, activities, settings) to the device's microSD **a few seconds after each change**, whenever the device can be reached without her doing anything (Wi-Fi set up, or Bluetooth already connected), and at every Sync. Over Wi-Fi the copy is **end-to-end encrypted** with the pairing code (the online relay only sees scrambled bytes). The device keeps that copy and the one before it. A new or emptied planner (new iPad, Safari cleared, new icon) offers to **put her planner back from the device** at the first Sync. The top bar says "Copy on the device · 10:42". Needs the v3 firmware.
 
 ---
 
@@ -107,7 +114,12 @@ Items from the change list that needed more information before being built. Each
 - **Moving to the Home Screen icon**: the icon has its own storage, separate from Safari. → Save a backup first, load it in the icon (the v0.10 tutorial and the icon's first screen do this).
 - Clearing Safari's history and website data.
 
-**Plan for Design Day (15 minutes with her, iPad in hand):**
+**Her Home Screen icon is already set up**, so the best way is to make the update reach her by itself, and only *check* it at Design Day:
+- **Before Design Day:** publish v0.10 to the **same address** her icon opens (tools/publish-test-site.sh). The next time she opens the icon with internet, the update downloads in the background and switches over by itself when she is not in the middle of something; a safety copy is made "before an update". Nothing for her to do.
+- **At Design Day:** Settings → About shows the version (0.10.0). If it is older, press "Check for updates" (one tap). Then a Sync so the device gets its first full copy.
+- **Never** change the address, and never ask her to delete and re-add the icon (the icon's storage would go with it).
+
+**Fallback plan, if anything looks wrong (15 minutes with her, iPad in hand):**
 1. Before touching anything: Settings → **Save backup** (file in Files). Also check the device has the week (Sync now).
 2. Open the planner at the **same address** with internet; wait for "The planner was updated (version 0.10.0)" (or Settings → Check for updates).
 3. Check her week is there (it will be; a safety copy was made automatically).

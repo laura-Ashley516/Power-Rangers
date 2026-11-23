@@ -6,7 +6,7 @@
 //
 // Track: B - Data + device
 
-import { DAYS, PERIODS, APP_VERSION } from './config.js';
+import { DAYS, PERIODS, APP_VERSION, DEFAULT_SPEECH_MODEL } from './config.js';
 import { defaultLang, getLang } from './i18n.js';
 
 export const STATE_VERSION = 5;
@@ -93,7 +93,7 @@ const put = (schedule, day, period, id, extra = {}) => {
 
 export const defaultSettings = () => ({
   contrast: false, large: false, alerts: true, sms: false, lead: 60, theme: 'sage',
-  speechModel: 'Xenova/whisper-tiny.en', demoDevice: false,
+  speechModel: DEFAULT_SPEECH_MODEL, demoDevice: false,
   connection: 'bluetooth', // 'bluetooth' or 'wifi' (docs/wifi-plan.md)
   wifi: { broker: '', username: '', password: '', code: '' },
   weekStart: 'Sunday',     // her kitchen calendar starts on Sunday
@@ -103,6 +103,7 @@ export const defaultSettings = () => ({
   lang: defaultLang(),     // 'en' or 'fr' (client feedback, Nov 2026)
   appReminders: true,      // reminders on the iPad too, at the same times as the device
   suggestionsOpen: false,  // the Suggestions panel is closed until she opens it
+  layout: 'week',          // main screen: 'week' or 'day' (One day), switch at the top
   tutorialDone: false,     // the first-use tutorial was seen (or skipped)
 });
 
@@ -240,6 +241,8 @@ export function migrate(raw) {
   }
   s.settings = { ...defaultSettings(), ...(s.settings || {}) };
   if (s.settings.large && !raw.settings?.size) s.settings.size = 'large'; // old "Larger text" switch
+  // v0.10: the more accurate speech model becomes the default once (she can still choose the small one).
+  if (!s.settings.modelV10) { s.settings.speechModel = DEFAULT_SPEECH_MODEL; s.settings.modelV10 = true; }
   s.changeLog = Array.isArray(s.changeLog) ? s.changeLog : [];
   s.leftovers = Array.isArray(s.leftovers) ? s.leftovers : [];
   // v0.8.1: no energy tracking. Check-ins from older versions are deleted, not kept.
@@ -337,6 +340,29 @@ export function countScheduled(schedule) {
 }
 
 export const isScheduleEmpty = (schedule) => countScheduled(schedule) === 0;
+
+// What is worth a new copy on the device: her activities, weeks and settings (not the save time).
+export function backupSig(state) {
+  const text = JSON.stringify([state.schedule, state.weeks, state.library, state.series, state.leftovers, state.settings, state.kept]);
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) { h ^= text.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return `${text.length}-${(h >>> 0).toString(36)}`;
+}
+
+// ---------- The planner as compact bytes (v3: the automatic copy kept on the device) ----------
+// gzip of the JSON (typically 5–30 KB). CompressionStream exists in Safari 16.4+, Chrome and Node 18+.
+async function streamBytes(stream) { return new Uint8Array(await new Response(stream).arrayBuffer()); }
+export async function packState(state) {
+  const json = new TextEncoder().encode(JSON.stringify({ app: 'pwr-planner', savedAt: Date.now(), state }));
+  return streamBytes(new Blob([json]).stream().pipeThrough(new CompressionStream('gzip')));
+}
+export async function unpackState(bytes) {
+  const json = await streamBytes(new Blob([bytes]).stream().pipeThrough(new DecompressionStream('gzip')));
+  const data = JSON.parse(new TextDecoder().decode(json));
+  const state = migrate(data?.state || data);
+  if (!state) throw new Error('This file is not a planner backup.');
+  return state;
+}
 
 // ---------- Backup file ----------
 

@@ -9,7 +9,7 @@ import { uid, isAppointment } from './store.js';
 import { openAppointmentCard } from './ui-appointment.js';
 import { $, esc, shape, shapeText, energyLabel, toast, showModal, closeModal, energyPicker, orderedDays } from './ui-kit.js';
 import { placeInto, openSplit } from './ui-week.js';
-import { iconFor, ICON_CHOICES } from './icons.js';
+import { iconFor, ICON_CHOICES, drawing } from './icons.js';
 import { t, tDay, tPeriod, where, clock } from './i18n.js';
 
 const clone = (x) => JSON.parse(JSON.stringify(x));
@@ -19,7 +19,7 @@ const box = 'style="width:24px;height:24px"';
 export function renderLibrary() {
   // Every week or not is set on the week's cards (tap a card); an activity used by a weekly one cannot be deleted.
   const weekly = new Set(Object.values(ctx.state.series || {}).map((x) => x.item.activityId));
-  $('libraryList').innerHTML = ctx.state.library.map((a) => `<article class="library-item ${esc(a.energy)}"><span class="lib-icon" aria-hidden="true">${iconFor(a)}</span><span class="chip e-${esc(a.energy)}">${shape(a.energy)} ${energyLabel(a.energy)}</span><h4>${esc(a.name)}</h4><p>${a.duration ? `${a.duration} min` : ''}${weekly.has(a.id) ? ` · ${t('in your week every week')}` : ''}${a.steps?.length ? ` · ${t('{n} steps', { n: a.steps.length })}` : ''}${a.note ? `<br>${esc(a.note)}` : ''}</p><div class="row"><button class="small" data-add-to-schedule="${esc(a.id)}">${t('Add to the week')}</button><button class="small" data-split-library="${esc(a.id)}">${t('Split into parts')}</button><button class="small" data-edit-library="${esc(a.id)}">${t('Edit')}</button>${weekly.has(a.id) ? '' : `<button class="small danger" data-delete-library="${esc(a.id)}">${t('Delete')}</button>`}</div></article>`).join('') || `<p>${t('No activities yet. Create one to get started.')}</p>`;
+  $('libraryList').innerHTML = ctx.state.library.map((a) => `<article class="library-item ${esc(a.energy)}"><span class="lib-icon e-${esc(a.energy)}" aria-hidden="true">${iconFor(a)}</span><span class="chip e-${esc(a.energy)}">${shape(a.energy)} ${energyLabel(a.energy)}</span><h4>${esc(a.name)}</h4><p>${a.duration ? `${a.duration} min` : ''}${weekly.has(a.id) ? ` · ${t('in your week every week')}` : ''}${a.steps?.length ? ` · ${t('{n} steps', { n: a.steps.length })}` : ''}${a.note ? `<br>${esc(a.note)}` : ''}</p><div class="row"><button class="small" data-add-to-schedule="${esc(a.id)}">${t('Add to the week')}</button><button class="small" data-split-library="${esc(a.id)}">${t('Split into parts')}</button><button class="small" data-edit-library="${esc(a.id)}">${t('Edit')}</button>${weekly.has(a.id) ? '' : `<button class="small danger" data-delete-library="${esc(a.id)}">${t('Delete')}</button>`}</div></article>`).join('') || `<p>${t('No activities yet. Create one to get started.')}</p>`;
 }
 
 export function scheduleFromLibrary(activityId, day, period, opts) { placeInto('library', activityId, day, period, opts); }
@@ -42,7 +42,7 @@ const repeatField = (on) => `<div class="setting-row" style="margin-top:12px"><l
 // A picture for the activity: chosen from the name, or one she taps.
 const iconField = (a) => {
   const current = a.icon || '';
-  return `<fieldset class="field icon-field"><legend>${t('Picture')}</legend><div class="icon-options"><label title="${esc(t('Chosen from the name'))}"><input type="radio" name="icon" value="" ${current ? '' : 'checked'}><span class="icon-auto">${t('Auto')}</span></label>${ICON_CHOICES.map((i) => `<label><input type="radio" name="icon" value="${i}" ${current === i ? 'checked' : ''}><span aria-hidden="true">${i}</span></label>`).join('')}</div></fieldset>`;
+  return `<fieldset class="field icon-field"><legend>${t('Picture')}</legend><div class="icon-options"><label title="${esc(t('Chosen from the name'))}"><input type="radio" name="icon" value="" ${current ? '' : 'checked'}><span class="icon-auto">${t('Auto')}</span></label>${ICON_CHOICES.map((i) => `<label><input type="radio" name="icon" value="${i}" ${current === i ? 'checked' : ''} aria-label="${i}"><span>${drawing(i)}</span></label>`).join('')}</div></fieldset>`;
 };
 
 const detailFields = (a) => `<div class="row" style="margin-top:12px"><div class="field"><label for="fDuration">${t('About how long (minutes)')}</label><input id="fDuration" name="duration" type="number" min="5" max="600" step="5" value="${a.duration || 30}"></div></div>
@@ -116,7 +116,7 @@ export function createAndScheduleActivity(day = days()[0], period = 'Morning') {
 
 // Tap on an empty part of a block: pick one of her activities for it (2 taps), with an optional time.
 export function openQuickAdd(day, period) {
-  showModal(t('Add to {day} · {period}', { day: tDay(day), period: tPeriod(period) }), `<div class="field"><label for="quickActivity">${t('Choose an activity')}</label><select name="activityId" id="quickActivity" required size="8" style="min-height:280px">${ctx.state.library.map((a, i) => `<option value="${a.id}" ${i === 0 ? 'selected' : ''}>${iconFor(a)} ${shapeText(a.energy)} ${esc(a.name)} — ${energyLabel(a.energy)}</option>`).join('')}</select></div>
+  showModal(t('Add to {day} · {period}', { day: tDay(day), period: tPeriod(period) }), `<div class="field"><label for="quickActivity">${t('Choose an activity')}</label><select name="activityId" id="quickActivity" required size="8" style="min-height:280px">${ctx.state.library.map((a, i) => `<option value="${a.id}" ${i === 0 ? 'selected' : ''}>${shapeText(a.energy)} ${esc(a.name)} — ${energyLabel(a.energy)}</option>`).join('')}</select></div>
     <div class="row" style="margin-top:12px"><div class="field"><label for="fTime">${t('At (optional)')}</label><input id="fTime" name="time" type="time" step="300"></div></div>
     ${repeatField(false)}<p class="muted" style="margin-top:8px;font-size:.85em">${t('Not in the list?')} <button type="button" class="small" id="quickNew">＋ ${t('New activity')}</button></p>`, (fd) => {
     const time = readTime(fd);
@@ -135,7 +135,7 @@ export function openCardMenu(id) {
   const { a, d, p } = found;
   const usual = a.seriesId ? ctx.state.series?.[a.seriesId] : null;
   const weekly = !!usual;
-  showModal(`<span class="title-icon" aria-hidden="true">${iconFor(a)}</span> ${shape(a.energy)} ${esc(a.name)}`, `<p class="muted">${esc(where(d, p))}${a.time ? ` · ${esc(clock(a.time))}` : ''}${weekly && (usual.day !== d || usual.period !== p) ? ` · ${t('this week only (usually {where})', { where: where(usual.day, usual.period) })}` : ''}</p>${a.steps?.length ? `<p style="margin-top:6px">${t('Steps')}: ${a.steps.map(esc).join(' · ')}</p>` : ''}
+  showModal(`<span class="title-icon e-${esc(a.energy)}" aria-hidden="true">${iconFor(a)}</span> ${shape(a.energy)} ${esc(a.name)}`, `<p class="muted">${esc(where(d, p))}${a.time ? ` · ${esc(clock(a.time))}` : ''}${weekly && (usual.day !== d || usual.period !== p) ? ` · ${t('this week only (usually {where})', { where: where(usual.day, usual.period) })}` : ''}</p>${a.steps?.length ? `<p style="margin-top:6px">${t('Steps')}: ${a.steps.map(esc).join(' · ')}</p>` : ''}
     <div class="row" style="margin:10px 0 4px">${isAppointment(a, ctx.state.library) ? `<button type="button" class="primary" id="openApCard">${t('Appointment card: questions and what to bring')}</button>` : ''}<button type="button" id="splitCard">${t('Split into parts')}</button></div>
     <div class="setting-row"><label for="fWeekly"><strong>${t('Every week')}</strong><p class="muted">${weekly ? t('On: it comes back every week on {where}. Untick to keep it only this week.', { where: where(usual.day, usual.period) }) : t('Off: only this week. Tick to repeat it every week in this place.')}</p></label><input id="fWeekly" name="weekly" type="checkbox" ${weekly ? 'checked' : ''} ${box}></div>
     <div style="margin-top:12px">${energyPicker('energy', a.energy, t('Energy and colour'))}</div>

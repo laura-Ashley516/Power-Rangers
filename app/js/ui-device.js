@@ -7,13 +7,13 @@ import { MAX_DEVICE_ACTIVITIES } from './config.js';
 import { ctx, commit } from './context.js';
 import { BleTransport, FakeTransport, DeviceLink } from './device.js';
 import { MqttTransport, newPairingCode, normalizeCode } from './device-wifi.js';
-import { scheduleToLines, linesToSchedule, isScheduleEmpty, quietLines, deviceSignature } from './store.js';
-import { t, fmtTime } from './i18n.js';
+import { scheduleToLines, linesToSchedule, isScheduleEmpty, quietLines, deviceSignature, packState, unpackState, keepSafetyCopy, isDemo, backupSig } from './store.js';
+import { t, fmtTime, fmtDate } from './i18n.js';
 import { $, esc, toast } from './ui-kit.js';
 import { scheduleFor } from './ui-week.js';
 import { saveNote } from './voice/notes.js';
 import { toPlayableWav, wavInfo, encodeImaAdpcmWav } from './voice/wav.js';
-import { processAll, renderVoiceView, updateCount } from './voice/inbox.js';
+import { processAll, renderVoiceView, updateCount, refreshWaiting } from './voice/inbox.js';
 
 let link = null;
 
@@ -91,6 +91,19 @@ async function runSync(out) {
     await link.setTime();
     out.textContent = useWifi() ? t('Syncing over Wi-Fi… please keep this screen open.') : t('Syncing… please keep this screen open and the device close by.');
 
+    // 0. v3: an untouched planner (new iPad, Safari cleared, new Home Screen icon) and a copy on the device:
+    //    offer to put her planner back, before anything is sent.
+    let restored = false;
+    if ((info.version || 0) >= 3 && !ctx.state.touched) {
+      const copy = await link.getState().catch(() => null);
+      if (copy && confirm(t('Your planner has a copy on the device (saved {date}). Put it back on this iPad?', { date: fmtDate(new Date(copy.savedAt), { month: 'long', day: 'numeric' }) }))) {
+        keepSafetyCopy(ctx.state, 'before a restore');
+        const state = await unpackState(copy.bytes);
+        commit({ ...state, touched: true });
+        restored = true;
+      }
+    }
+
     // 1. Week: send it, unless this app is empty and the device still has a copy (then restore).
     let weekMsg = '';
     if (ctx.weekOffset === 0 && isScheduleEmpty(ctx.state.schedule) && info.scheduleCount > 0) {
@@ -118,16 +131,15 @@ async function runSync(out) {
       if (quiet.length && (await link.sendQuiet(quiet))) weekMsg += ' ' + t(quiet.length > 1 ? '{n} quiet times sent.' : '{n} quiet time sent.', { n: quiet.length });
     }
 
-    // 2. Voice notes: copy each one, check it, then let the device delete it.
-    const notes = await link.listNotes();
-    let collected = 0;
-    for (const n of notes) {
-      const bytes = await link.getNote(n.id, (p) => { out.textContent = t('Collecting voice note {i} of {n}… {p} % (keep this screen open)', { i: collected + 1, n: notes.length, p: Math.round(p * 100) }); });
-      const audio = toPlayableWav(bytes.buffer); // unpack the device's compressed audio
-      await saveNote({ source: 'device', bytes: audio.buffer, mime: audio.mime, recordedAt: n.time ? n.time * 1000 : Date.now() });
-      await link.deleteNote(n.id);
-      collected++;
+    // 1b. v3: the full copy of the planner on the device (also done automatically after changes).
+    if ((info.version || 0) >= 3) {
+      await link.sendState(await packState(ctx.state));
+      ctx.state.deviceBackup = { at: Date.now(), sig: backupSig(ctx.state) };
+      if (restored) weekMsg = t('Your planner was put back from the device.') + ' ' + weekMsg;
     }
+
+    // 2. Voice notes: copy each one, check it, then let the device delete it.
+    const collected = await collectNotes(link, (i, n, p) => { out.textContent = t('Collecting voice note {i} of {n}… {p} % (keep this screen open)', { i, n, p }); });
     out.textContent = `${t('Synced at {time}.', { time: fmtTime(new Date()) })} ${weekMsg}${collected ? ' ' + t(collected > 1 ? '{n} voice notes collected.' : '{n} voice note collected.', { n: collected }) : ''}`;
     renderDemoPanel();
     updateCount();
@@ -137,8 +149,9 @@ async function runSync(out) {
       toast(t('Listening to the voice notes from the device… keep this screen open.'), 4000);
       const lock = await keepAwake();
       const done = await processAll().finally(() => lock?.release?.().catch(() => {}));
-      const added = done.filter((n) => n?.status === 'applied' || n?.status === 'partly').length;
-      toast(added ? t('Voice notes added to your calendar. See “Voice notes” for details.') : t('Voice notes saved. Some need sorting in “Voice notes”.'), 5000);
+      const waiting = done.filter((n) => n?.status === 'confirm').length;
+      toast(waiting ? t('Voice notes understood. Press “Do them” on the week to make the changes.') : t('Voice notes saved. Some need sorting in “Voice notes”.'), 6000);
+      refreshWaiting();
       renderVoiceView();
     }
   } catch (err) {
@@ -236,4 +249,96 @@ export function wireConnection() {
   };
   $('wifiSave').onclick = () => { if (saveWifi()) { renderConnection(); toast(t('Wi-Fi setup saved.')); } };
   $('wifiTest').onclick = testWifi;
+}
+
+// ---------- Automatic copy of the planner on the device (v3) ----------
+// Team decision, Nov 2026: backups must be automatic, she should never have to deal with them, and her data
+// must never be at risk. A few seconds after a change, when the device can be reached without her doing
+// anything (Wi-Fi set up, the demo device, or Bluetooth already connected), the whole planner is copied to it.
+// Over Wi-Fi it is end-to-end encrypted (device-wifi.js); the device keeps the copy and the one before it.
+let backupTimer = null;
+let backupRunning = false;
+const BACKUP_DELAY_MS = 20000;
+
+const wifiReady = () => ctx.state.settings.connection === 'wifi' && ctx.state.settings.wifi?.broker && normalizeCode(ctx.state.settings.wifi?.code);
+
+export function scheduleAutoBackup() {
+  if (isDemo()) return; // demo-mode changes are not her data
+  if (ctx.state.deviceBackup?.sig === backupSig(ctx.state)) return;
+  clearTimeout(backupTimer);
+  backupTimer = setTimeout(runAutoBackup, BACKUP_DELAY_MS);
+}
+
+async function quietLink() {
+  if (link?.t.connected) return link;
+  if (!useDemo() && !wifiReady()) return null; // Bluetooth needs her tap to connect: wait for the next Sync
+  const transport = makeTransport();
+  await transport.connect();
+  if (useWifi() && transport.deviceOnline === false) { transport.disconnect(); return null; }
+  const l = new DeviceLink(transport);
+  l.info = await l.hello();
+  link = l;
+  transport.onDisconnect = () => { link = null; };
+  return l;
+}
+
+export async function runAutoBackup() {
+  if (backupRunning || isDemo()) return false;
+  backupRunning = true;
+  try {
+    const l = await quietLink();
+    if (!l || !(l.version >= 3)) return false;
+    const sig = backupSig(ctx.state);
+    await l.sendState(await packState(ctx.state));
+    ctx.state.deviceBackup = { at: Date.now(), sig };
+    renderBackupLine();
+    return true;
+  } catch (e) {
+    console.warn('Automatic copy to the device not done this time:', e.message); // tried again after the next change
+    return false;
+  } finally { backupRunning = false; }
+}
+
+// The save line in the top bar shows when the device last got a copy (main.js draws the rest).
+export function renderBackupLine() { document.dispatchEvent(new CustomEvent('pwr-backup')); }
+
+// Copy every voice note waiting on the device, check it, then let the device delete it. Returns how many.
+async function collectNotes(l, onProgress) {
+  const notes = await l.listNotes();
+  let collected = 0;
+  for (const n of notes) {
+    const bytes = await l.getNote(n.id, (p) => onProgress?.(collected + 1, notes.length, Math.round(p * 100)));
+    const audio = toPlayableWav(bytes.buffer); // unpack the device's compressed audio
+    await saveNote({ source: 'device', bytes: audio.buffer, mime: audio.mime, recordedAt: n.time ? n.time * 1000 : Date.now() });
+    await l.deleteNote(n.id);
+    collected++;
+  }
+  return collected;
+}
+
+// ---------- Voice notes from the device, picked up by themselves over Wi-Fi (team decision, Nov 2026) ----------
+// While the planner is open and Wi-Fi is set up, it looks for new notes on the device every few minutes, so she
+// never has to press Sync: they are understood on this iPad and wait for her one-tap OK ("Do them" on the week).
+const NOTE_CHECK_MS = 3 * 60 * 1000;
+let checking = false;
+export function startNotePickup() {
+  const check = async () => {
+    if (checking || document.visibilityState !== 'visible' || isDemo() || !wifiReady()) return;
+    checking = true;
+    try {
+      const l = await quietLink();
+      if (!l || !(l.version >= 1)) return;
+      const got = await collectNotes(l);
+      if (got) {
+        updateCount();
+        await processAll();
+        refreshWaiting();
+      }
+    } catch (e) {
+      console.warn('Voice notes not picked up this time:', e.message); // tried again in a few minutes
+    } finally { checking = false; }
+  };
+  setInterval(check, NOTE_CHECK_MS);
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(check, 5000); });
+  setTimeout(check, 15000);
 }

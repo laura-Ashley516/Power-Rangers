@@ -36,6 +36,7 @@ export function change(c, { silent = false, undoable = true } = {}) {
   const result = applyChange(ctx.state, c);
   if (result.ok) {
     ctx.selectedActivity = null;
+    result.state.touched = true; // she has used this planner (an untouched one may be restored from the device)
     if (undoable && result.undo) ctx.undoStack = [...ctx.undoStack, result.undo].slice(-20);
     commit(result.state);
   }
@@ -49,6 +50,7 @@ export function change(c, { silent = false, undoable = true } = {}) {
 // Changes that do not go through the rules (editing or deleting one of "My activities", a photo import):
 // the whole planner as it was is kept, so Undo can put it back.
 export function snapshotUndo() {
+  ctx.state.touched = true;
   ctx.undoStack = [...ctx.undoStack, { type: 'snapshot', state: JSON.parse(JSON.stringify(ctx.state)) }].slice(-20);
 }
 

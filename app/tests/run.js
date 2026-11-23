@@ -254,7 +254,7 @@ const box = html.match(/<aside[^>]*id="palette"[^>]*>/)?.[0] || '';
 check('the "My activities" box is in the week screen', !!box && html.includes('id="paletteTiles"'));
 check('the box is always visible (not hidden)', !!box && !/class="[^"]*\bhidden\b/.test(box));
 check('the week screen opens first', /<section id="weeklyView" class="view"/.test(html) && !html.includes('id="todayView"'));
-check('One day is at the end of the week screen (no separate Today screen)', html.indexOf('id="dayPanel"') > html.indexOf('id="weekGrid"') && html.indexOf('id="dayPanel"') < html.indexOf('id="activitiesView"'));
+check('One day is a layout of the main schedule screen, chosen at the top (no Today screen)', html.includes('data-layout="day"') && html.indexOf('id="dayPanel"') > html.indexOf('id="weekGrid"') && html.indexOf('id="dayPanel"') < html.indexOf('id="activitiesView"'));
 check('drag code is present (mouse, finger, pen)', mainJs.includes("addEventListener('pointerdown'") && mainJs.includes('function dropOn') && mainJs.includes('startDrag'));
 check('tap-then-tap alternative is present', mainJs.includes('placeInto(ctx.placing.kind') && weekJs.includes('export function startPlacing'));
 const libJs = readFileSync(new URL('../js/ui-library.js', import.meta.url), 'utf8');
@@ -324,7 +324,7 @@ const transport = new FakeTransport();
 await transport.connect();
 const link = new DeviceLink(transport);
 const hi = await link.hello();
-check('HELLO answers protocol v2 (clock times, quiet times)', hi.version === 2, JSON.stringify(hi));
+check('HELLO answers protocol v3 (times, quiet times, planner copy)', hi.version === 3, JSON.stringify(hi));
 await link.setTime();
 await link.sendSchedule(lines);
 check('schedule is stored on the device', JSON.parse(mem['pwr-demo-device']).schedule.length === lines.length);
@@ -344,7 +344,7 @@ console.log('Photo, reminders, French');
 {
   const { parsePhotoText } = await import('../js/photo-parse.js');
   const { remindersFor } = await import('../js/rules.js');
-  const { iconFor } = await import('../js/icons.js');
+  const { iconFor, iconId } = await import('../js/icons.js');
   const { t, setLang: lang } = await import('../js/i18n.js');
   const wk = fresh();
   const photo = parsePhotoText('MONDAY\n10:30 Physio\nAfternoon: haircut\nMardi soir cours de musique\nJeudi 14h dentiste\nAdd vacuum on Friday morning', { library: wk.library, schedule: wk.schedule, now: NOW });
@@ -375,13 +375,15 @@ console.log('Photo, reminders, French');
   check('reminders: rest and "no reminder" activities are left out', !rem.some((r) => r.items.some((a) => a.id === 'c' || a.id === 'd')));
 
   // Pictures and French texts
-  check('pictures: chosen from the name, whole words only', iconFor({ name: 'Change bed and towels' }) === '🛏️' && iconFor({ name: 'Hang laundry' }) === '🧺' && iconFor({ name: 'Rendez-vous médical' }) === '🩺');
-  check('pictures: her own choice wins', iconFor({ name: 'Walk', icon: '🐕' }) === '🐕');
+  check('pictures: chosen from the name, whole words only', iconId({ name: 'Change bed and towels' }) === 'bed' && iconId({ name: 'Hang laundry' }) === 'laundry' && iconId({ name: 'Rendez-vous médical' }) === 'medical' && iconId({ name: 'Lunch with a friend' }) === 'coffee');
+  check('pictures: her own choice wins; an unknown one falls back to the name', iconId({ name: 'Walk', icon: 'pet' }) === 'pet' && iconId({ name: 'Walk', icon: '🐕' }) === 'walk');
+  check('pictures: they are drawings (SVG), not emoji', iconFor({ name: 'Walk' }).startsWith('<svg'));
   lang('fr');
   check('French: a message with a name and a place', t('{name} added to {where}.', { name: 'Physio', where: 'lundi matin' }) === 'Physio ajouté lundi matin.');
   check('French: the energy rules speak French', checkDay({ ...emptySchedule(), Monday: { Morning: [{ energy: 'red' }, { energy: 'red' }], Afternoon: [], Evening: [] } }, 'Monday').warnings[0].startsWith('Plus d’une'));
   lang('en');
-  const missing = (await import('node:child_process')).execFileSync('node', [new URL('../../tools/i18n-check.mjs', import.meta.url).pathname, '--json']).toString();
+  const { spawnSync } = await import('node:child_process');
+  const missing = spawnSync('node', [new URL('../../tools/i18n-check.mjs', import.meta.url).pathname, '--json']).stdout.toString() || '[]';
   check('French: every English text has a French text', JSON.parse(missing).length === 0, missing.slice(0, 200));
 }
 
@@ -395,6 +397,37 @@ console.log('Photo, reminders, French');
   check('v2 lines: clock time as a 5th field, timed activities first', timed.join() === 'Monday|Morning|Physio|yellow|10:30,Monday|Morning|Walk|green');
   check('v1 lines never carry a time', scheduleToLines({ ...emptySchedule(), Monday: { Morning: [{ name: 'Physio', energy: 'yellow', time: '10:30' }], Afternoon: [], Evening: [] } }).join() === 'Monday|Morning|Physio|yellow');
   check('a backup line with a time comes back with its time', linesToSchedule(['Monday|Morning|Physio|yellow|10:30'], []).schedule.Monday.Morning[0].time === '10:30');
+}
+// ---------- v3: automatic copy of the planner on the device, end-to-end encryption ----------
+console.log('Planner copy on the device, encryption');
+{
+  const { packState, unpackState, backupSig } = await import('../js/store.js');
+  const { e2eKey, seal, open, topicId } = await import('../js/device-wifi.js');
+  const st0 = fresh();
+  st0.schedule.Monday.Morning.push({ id: 'zz', name: 'Unique test activity', energy: 'red', time: '10:30' });
+  const packed = await packState(st0);
+  check('the planner packs small (gzip)', packed.length < JSON.stringify(st0).length / 3, `${packed.length} bytes`);
+  const back = await unpackState(packed);
+  check('and comes back identical', back.schedule.Monday.Morning.some((a) => a.name === 'Unique test activity' && a.time === '10:30') && back.library.length === st0.library.length);
+  check('a new copy is only needed when something changed', backupSig(st0) === backupSig({ ...st0, updatedAt: 1 }) && backupSig(st0) !== backupSig(back.schedule === st0.schedule ? st0 : { ...st0, kept: { Monday: 'x' } }));
+  const fk = new FakeTransport(); await fk.connect(); const lk = new DeviceLink(fk); await lk.hello();
+  check('no copy on a new device', (await lk.getState()) === null);
+  check('the device keeps the copy (sizes and sum checked)', (await lk.sendState(packed, Date.UTC(2026, 10, 23))) === true);
+  const got = await lk.getState();
+  check('and gives it back exactly', got && got.bytes.length === packed.length && got.bytes.every((b, i) => b === packed[i]) && got.savedAt === Date.UTC(2026, 10, 23));
+  lk.version = 2;
+  check('a v2 device is never sent the copy', (await lk.sendState(packed)) === false);
+
+  // Same test vector as docs/protocol.md (the firmware checks the same one at boot).
+  const id = await topicId('ABCD-EFGH-JKLM');
+  const key = await e2eKey('ABCD-EFGH-JKLM');
+  const iv = new Uint8Array(12).map((_, i) => i);
+  const sealed = await seal(key, `pwr/${id}/app`, 'HELLO|3', iv);
+  check('encryption: the protocol.md test vector', id === '3f63d25fcb89' && sealed === 'AAECAwQFBgcICQoL1KionQPm27sRx/m9qjYxu82Jhas9Q8k=', sealed);
+  const opened = await open(key, `pwr/${id}/app`, new TextEncoder().encode(sealed));
+  check('decryption gives the line back', opened && new TextDecoder().decode(opened) === 'HELLO|3');
+  check('a message for the other topic is refused', (await open(key, `pwr/${id}/dev`, new TextEncoder().encode(sealed))) === null);
+  check('another pairing code cannot read it', (await open(await e2eKey('BCDE-FGHJ-KLMN'), `pwr/${id}/app`, new TextEncoder().encode(sealed))) === null);
 }
 console.log('Compression');
 const pcm = readFileSync(new URL('./audio/move-walk.wav', import.meta.url));

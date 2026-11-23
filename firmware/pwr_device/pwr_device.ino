@@ -7,7 +7,9 @@
 //     go back to today.  RECORD button: hold to record a voice note.
 //   - Gentle vibration before a block (Morning / Afternoon / Evening)
 //     that has activities, once the app has set the clock.
-//   - Talks to the web app over Bluetooth Low Energy (docs/protocol.md).
+//   - Talks to the web app over Bluetooth Low Energy and over Wi-Fi
+//     (MQTT broker, end-to-end encrypted), same messages (docs/protocol.md).
+//   - Keeps a full copy of the app's planner on the microSD (v3, STATE_*).
 //   - Keeps the schedule and the voice notes on a microSD card.
 //
 //  Files in this folder (Arduino opens them as tabs):
@@ -19,7 +21,10 @@
 //   pwr_buttons.*     debounced buttons
 //   pwr_vibration.*   vibration motor pulses
 //   pwr_recorder.*    INMP441 microphone -> WAV file
-//   pwr_protocol.*    Bluetooth server and all protocol commands
+//   pwr_protocol.*    Bluetooth server and all protocol commands (BLE + Wi-Fi)
+//   pwr_wifi.*        Wi-Fi setup page (PWR-Setup), MQTT over TLS
+//   pwr_crypto.*      pairing code, topic id, AES-256-GCM end-to-end encryption
+//   pwr_base64.*      base64 encoder / decoder
 //   pwr_app.h         functions below that the Bluetooth code calls
 //
 //  Board: "ESP32 Dev Module", ESP32 Arduino core 2.0.x (see firmware/README.md).
@@ -34,6 +39,12 @@
 #include <BLEDevice.h>
 
 #include "pwr_config.h"
+#if PWR_USE_WIFI
+#include <WiFi.h>
+#include <PubSubClient.h>     // library "PubSubClient"
+// WiFiManager (library "WiFiManager" by tzapu) is included ONLY in pwr_wifi.cpp:
+// its header defines text tables, so including it in two files can break the link.
+#endif
 #include "pwr_schedule.h"
 #include "pwr_clock.h"
 #include "pwr_storage.h"
@@ -42,6 +53,8 @@
 #include "pwr_vibration.h"
 #include "pwr_recorder.h"
 #include "pwr_protocol.h"
+#include "pwr_wifi.h"
+#include "pwr_crypto.h"
 #include "pwr_app.h"
 
 // ---------------------------------------------------------------------
@@ -300,6 +313,7 @@ void updateScreen() {
 
   DeviceStatus st;
   st.connected = protocolIsConnected();
+  st.wifiSetup = wifiSetupOpen();
   st.sdOk = storageReady();
   st.notesWaiting = notesWaiting;
   st.minutesOfDay = clockMinutesOfDay();
@@ -314,6 +328,7 @@ void updateScreen() {
   }
 
   bool statusChanged = st.connected != shownStatus.connected ||
+                       st.wifiSetup != shownStatus.wifiSetup ||
                        st.sdOk != shownStatus.sdOk ||
                        st.notesWaiting != shownStatus.notesWaiting ||
                        st.minutesOfDay != shownStatus.minutesOfDay;
@@ -340,6 +355,10 @@ void setup() {
   doneButton.begin();
   recordButton.begin();
 
+  // Hold NEXT + DONE while switching on: open the Wi-Fi setup page again.
+  delay(50);
+  bool openWifiSetup = (digitalRead(PIN_BTN_NEXT) == LOW && digitalRead(PIN_BTN_DONE) == LOW);
+
   for (int i = 0; i < MAX_ACTIVITIES; i++) remindedActivity[i] = -1;
   displayBegin();
   displaySplash("Scheduler", "Starting...");
@@ -354,7 +373,11 @@ void setup() {
     Serial.println("Microphone not available; recording disabled.");
   }
 
-  protocolBegin();
+  e2eSelfTest();        // prints "E2E self-test: PASS" (or FAIL) on the Serial Monitor
+
+  protocolBegin();      // Bluetooth
+  wifiBegin(openWifiSetup);   // Wi-Fi (does nothing when PWR_USE_WIFI is 0)
+  if (wifiSetupOpen()) showMessage("Wi-Fi setup", "Join PWR-Setup");
 
   lastButtonMs = millis();
   lastAutoRotateMs = millis();
@@ -362,7 +385,8 @@ void setup() {
 }
 
 void loop() {
-  protocolLoop();      // Bluetooth messages (and voice-note chunks)
+  wifiLoop();          // Wi-Fi: setup page, broker connection, incoming messages -> queue
+  protocolLoop();      // Bluetooth + Wi-Fi messages (and voice-note / planner-copy chunks)
   handleButtons();
   updateToday();
   updateReminders();

@@ -11,7 +11,8 @@
 
 // What the status line shows. The main sketch fills this in.
 struct DeviceStatus {
-  bool connected;      // Bluetooth connected to the app
+  bool connected;      // Bluetooth connected to the app, or online on the Wi-Fi broker
+  bool wifiSetup;      // the PWR-Setup hotspot is open
   bool sdOk;           // microSD card mounted
   int  notesWaiting;   // voice notes not yet downloaded
   int  minutesOfDay;   // local time for the clock, -1 if not set

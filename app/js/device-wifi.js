@@ -35,6 +35,33 @@ export async function topicId(code) {
   return Array.from(hash.slice(0, 6), (b) => b.toString(16).padStart(2, '0')).join('');
 }
 
+// ---------- End-to-end encryption (protocol v3, docs/protocol.md) ----------
+// "Nothing readable is sent online": every line is encrypted here and on the device with AES-256-GCM.
+// Key = SHA-256("pwr-e2e-key|" + the 12 code characters). Sealed = 12-byte IV ‖ ciphertext ‖ 16-byte tag,
+// with the topic as additional data, sent as base64 text. The broker (even a public test broker) only sees scrambled bytes.
+export async function e2eKey(code) {
+  const raw = normalizeCode(code).replace(/-/g, '');
+  const bytes = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('pwr-e2e-key|' + raw));
+  return crypto.subtle.importKey('raw', bytes, 'AES-GCM', false, ['encrypt', 'decrypt']);
+}
+const b64 = (bytes) => { let s = ''; bytes.forEach((b) => (s += String.fromCharCode(b))); return btoa(s); };
+const unb64 = (text) => { try { const s = atob(String(text).trim()); return Uint8Array.from(s, (c) => c.charCodeAt(0)); } catch (e) { return new Uint8Array(0); } };
+export async function seal(key, topic, text, iv = crypto.getRandomValues(new Uint8Array(12))) {
+  const ct = new Uint8Array(await crypto.subtle.encrypt({ name: 'AES-GCM', iv, additionalData: new TextEncoder().encode(topic) }, key, new TextEncoder().encode(text)));
+  const out = new Uint8Array(12 + ct.length);
+  out.set(iv, 0);
+  out.set(ct, 12);
+  return b64(out);
+}
+// Returns the line's bytes, or null if the message was not sealed with this key for this topic.
+export async function open(key, topic, payload) {
+  const bytes = unb64(new TextDecoder().decode(payload));
+  if (bytes.length < 12 + 16) return null;
+  try {
+    return new Uint8Array(await crypto.subtle.decrypt({ name: 'AES-GCM', iv: bytes.subarray(0, 12), additionalData: new TextEncoder().encode(topic) }, key, bytes.subarray(12)));
+  } catch (e) { return null; }
+}
+
 export const topicsFor = (id) => ({
   toDevice: `pwr/${id}/app`,   // app → device: protocol lines
   toApp: `pwr/${id}/dev`,      // device → app: protocol lines
@@ -68,6 +95,7 @@ export class MqttTransport {
     if (!broker || !code) throw new Error('Wi-Fi is not set up yet: fill in “Wi-Fi setup” below.');
     if (!/^wss?:\/\//.test(broker)) throw new Error('The broker address must start with wss:// (secure WebSocket).');
     this.topics = topicsFor(await topicId(code));
+    this.key = await e2eKey(code);
     const connect = this.connectFn || (await mqttConnect());
     const client = connect(broker, {
       username: username || undefined,
@@ -84,8 +112,15 @@ export class MqttTransport {
       client.once('connect', () => { clearTimeout(timer); resolve(); });
       client.once('error', (err) => { clearTimeout(timer); fail(err); });
     });
+    // Decrypt in order (a chain), so lines arrive in the order the device sent them.
+    let chain = Promise.resolve();
     client.on('message', (topic, payload) => {
-      if (topic === this.topics.toApp) this.onPacket?.(new Uint8Array(payload));
+      if (topic === this.topics.toApp) {
+        chain = chain.then(async () => {
+          const line = await open(this.key, topic, payload);
+          if (line) this.onPacket?.(line); else console.warn('Wi-Fi: a message that was not from the paired device was ignored.');
+        });
+      }
       else if (topic === this.topics.status) { this.deviceOnline = String(payload) === 'online'; this.onStatus?.(this.deviceOnline); }
     });
     client.on('close', () => { if (this.open) { this.open = false; this.onDisconnect?.(); } });
@@ -95,7 +130,7 @@ export class MqttTransport {
   }
 
   get connected() { return this.open && !!this.client?.connected; }
-  async send(text) { await this.client.publishAsync(this.topics.toDevice, text, { qos: 1 }); }
+  async send(text) { await this.client.publishAsync(this.topics.toDevice, await seal(this.key, this.topics.toDevice, text), { qos: 1 }); }
   disconnect() { this.open = false; this.client?.end(true); }
 }
 

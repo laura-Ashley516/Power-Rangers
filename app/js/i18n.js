@@ -19,10 +19,10 @@ export function setLang(l) {
   if (typeof document !== 'undefined') document.documentElement.lang = lang;
 }
 
-// The language to start in, before she has chosen: the iPad's own language.
+// English is the default (team decision, Nov 2026); French was added so others can use the planner.
+// The language is chosen once (tutorial, Settings) and kept: voice is understood in that language only.
 export function defaultLang() {
-  const nav = typeof navigator !== 'undefined' ? navigator.language || '' : '';
-  return /^fr\b/i.test(nav) ? 'fr' : 'en';
+  return 'en';
 }
 
 export function t(en, vars) {

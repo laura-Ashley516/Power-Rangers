@@ -532,7 +532,7 @@ button.day-title:hover:not(:disabled) { background: transparent; text-decoration
 body[data-theme="dim"] .demo-banner { background: #4a3c10; color: #fff3c4; }
 
 /* ---------- One day (bottom of the week page): simple, a picture per activity ---------- */
-.day-panel { margin-top: calc(var(--gap-group) * 1.5); padding-top: var(--gap-group); border-top: 2px solid var(--line); max-width: 760px; }
+.day-panel { max-width: 760px; }
 .day-head { display: flex; justify-content: space-between; align-items: flex-end; gap: var(--gap); }
 .day-head h2 { font-size: calc(var(--fs-xxl) * 1.45); font-weight: 600; line-height: 1.1; letter-spacing: -.01em; }
 .day-head p { margin-top: 2px; }
@@ -559,18 +559,25 @@ body[data-theme="dim"] .period-chip.p-evening { background: #352d47; }
 .period-chip .chev { font-weight: 400; }
 .day-group.now .day-slot { padding: 6px; border-radius: 16px; box-shadow: inset 0 0 0 2px var(--accent); }
 .activity-card.day-card { align-items: center; gap: 14px; padding: 12px 16px; margin: 0; min-height: 68px; border-radius: 18px; background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
-.day-icon { display: grid; place-items: center; width: 48px; height: 48px; flex: 0 0 48px; border-radius: 50%; font-size: 1.5em; line-height: 1; }
+.day-icon { display: grid; place-items: center; width: 48px; height: 48px; flex: 0 0 48px; border-radius: 50%; }
+.act-icon { width: 26px; height: 26px; }
 .day-icon.e-rest { background: var(--rest); }
 .day-text { flex: 1; min-width: 0; display: grid; gap: 2px; }
 .day-name-line { font-weight: 700; font-size: 1.05em; line-height: 1.25; overflow-wrap: break-word; }
 .day-when { font-size: var(--fs-s); color: var(--muted); }
-.day-shape { font-size: 1.25em; display: inline-flex; }
+.day-shape { display: inline-flex; align-items: center; gap: 6px; font-size: var(--fs-s); font-weight: 600; color: var(--muted); white-space: nowrap; }
+.day-shape .eshape { width: 1.35em; height: 1.35em; }
 .day-shape .eshape-green { fill: var(--easy-mark); }
 .day-shape .eshape-yellow { fill: var(--mod-mark); }
 .day-shape .eshape-rest { fill: var(--rest-mark); }
 .day-over { color: var(--muted); }
-.lib-icon { float: right; font-size: 1.6em; line-height: 1; }
-.title-icon { margin-right: 4px; }
+.lib-icon { float: right; display: grid; place-items: center; width: 40px; height: 40px; border-radius: 50%; }
+.lib-icon .act-icon { width: 22px; height: 22px; }
+.title-icon { display: inline-grid; place-items: center; width: 36px; height: 36px; border-radius: 50%; vertical-align: middle; margin-right: 6px; }
+.title-icon .act-icon { width: 20px; height: 20px; }
+.rem-item { display: inline-flex; align-items: center; gap: 6px; }
+.rem-icon { display: inline-grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; }
+.rem-icon .act-icon { width: 18px; height: 18px; }
 
 /* Activity form: picture choice */
 .icon-field { border: 0; padding: 0; margin: 0; }
@@ -578,7 +585,8 @@ body[data-theme="dim"] .period-chip.p-evening { background: #352d47; }
 .icon-options { display: flex; flex-wrap: wrap; gap: 6px; }
 .icon-options label { position: relative; }
 .icon-options input { position: absolute; opacity: 0; }
-.icon-options span { display: grid; place-items: center; min-width: 44px; height: 44px; padding: 0 6px; border-radius: 10px; background: var(--surface-2); font-size: 1.35em; cursor: pointer; }
+.icon-options span { display: grid; place-items: center; min-width: 44px; height: 44px; padding: 0 6px; border-radius: 10px; background: var(--surface-2); cursor: pointer; color: var(--ink); }
+.icon-options .act-icon { width: 24px; height: 24px; }
 .icon-options .icon-auto { font-size: var(--fs-s); font-weight: 600; }
 .icon-options input:checked + span { outline: 3px solid var(--accent); }
 .icon-options input:focus-visible + span { outline: 3px solid var(--focus); }
@@ -609,7 +617,7 @@ body[data-theme="dim"] .period-chip.p-evening { background: #352d47; }
   .p-bar i { display: block; height: 100%; background: #4c9a3c; }
   .p-bar.mid i { background: #e0b000; }
   .p-bar.over i { background: #d92b20; }
-  .p-icon { font-size: 1.1em; }
+  .p-icon .act-icon { width: 14pt; height: 14pt; vertical-align: -3pt; }
   .p-logic { color: #333; }
 }
 @media (max-width: 700px) {
@@ -617,3 +625,10 @@ body[data-theme="dim"] .period-chip.p-evening { background: #352d47; }
   .strip-day { min-height: 54px; }
 }
 .card-time { font-weight: 700; white-space: nowrap; }
+
+/* Week / One day switch at the top of the schedule (v0.10) */
+.view-switch { display: inline-flex; padding: 3px; border-radius: 12px; background: var(--surface-2); gap: 2px; margin-right: 6px; }
+.view-switch button { border: 0; background: transparent; min-height: 40px; padding: 6px 16px; border-radius: 9px; font-weight: 600; color: var(--muted); }
+.view-switch button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
+.view-switch button:hover:not(:disabled) { background: var(--surface); }
+.layout-day #weekGrid, .layout-day #energyKey { display: none !important; }

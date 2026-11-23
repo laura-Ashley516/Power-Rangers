@@ -7,12 +7,12 @@
 import { DAYS, PERIODS } from '../config.js';
 import { ctx, commit } from '../context.js';
 import { $, esc, toast } from '../ui-kit.js';
-import { allNotes, deleteNote, processNote, processWaiting, retryWithText, undoChange, pendingCount } from './notes.js';
+import { allNotes, deleteNote, processNote, processWaiting, retryWithText, undoChange, pendingCount, confirmNote, confirmAll, confirmCount } from './notes.js';
 import { renderResults } from './recorder.js';
 import { t, fmtDate, fmtTime } from '../i18n.js';
 
 const STATUS_TEXT = {
-  new: 'Waiting', transcribing: 'Not finished', applied: 'Added to calendar', partly: 'Partly added', 'to-sort': 'To sort', empty: 'No words heard', error: 'Could not process',
+  new: 'Waiting', transcribing: 'Not finished', confirm: 'Waiting for your OK', applied: 'Added to calendar', partly: 'Partly added', 'to-sort': 'To sort', empty: 'No words heard', error: 'Could not process',
 };
 const when = (at) => `${fmtDate(new Date(at), { weekday: 'short' })} ${fmtTime(new Date(at))}`;
 const statusText = (st) => t(STATUS_TEXT[st] || st);
@@ -24,6 +24,15 @@ function audioUrl(note) {
 export async function renderVoiceView() {
   renderChangeLog();
   const notes = await allNotes();
+  // Notes understood and waiting for her OK: one "Yes, do it" each, and "Do them all" (client decision, Nov 2026).
+  const toConfirm = notes.filter((n) => n.status === 'confirm');
+  $('confirmList').innerHTML = toConfirm.length ? `${toConfirm.length > 1 ? `<button type="button" class="primary" data-confirm-all>${t('Do them all')}</button>` : ''}${toConfirm.map((n) => `
+    <article class="note-card">
+      <div class="note-head"><strong>${n.source === 'device' ? t('From the device') : t('Recorded on the iPad')} · ${when(n.recordedAt)}</strong></div>
+      <p class="muted">“${esc(n.transcript)}”</p>
+      <ul class="result-list">${(n.plan || []).filter((p) => p.ok).map((p) => `<li class="ok">${esc(p.summary)}</li>`).join('')}</ul>
+      <div class="row"><button class="primary" data-confirm-note="${n.id}">${t('Yes, do it')}</button><button class="small danger" data-delete-note="${n.id}">${t('Delete')}</button></div>
+    </article>`).join('')}` : `<p class="empty-state">${t('Nothing waiting for your OK.')}</p>`;
   const toSort = notes.filter((n) => ['to-sort', 'partly', 'error', 'transcribing'].includes(n.status));
   $('toSortList').innerHTML = toSort.length ? toSort.map((n) => `
     <article class="note-card">
@@ -42,6 +51,7 @@ export async function renderVoiceView() {
       <div class="row"><audio controls preload="none" src="${audioUrl(n)}"></audio>${['new', 'error', 'transcribing'].includes(n.status) ? `<button class="small" data-reprocess="${n.id}">${t('Process')}</button>` : ''}<button class="small danger" data-delete-note="${n.id}">${t('Delete')}</button></div>
     </article>`).join('') : `<p class="empty-state">${t('No voice notes yet. Use “Voice note” at the top, or record on the reminder device.')}</p>`;
   updateCount();
+  refreshWaiting();
 }
 
 function renderChangeLog() {
@@ -59,8 +69,18 @@ export async function updateCount() {
   } catch (e) { /* storage unavailable */ }
 }
 
-// Calm banner on the weekly board when voice notes changed the calendar.
+// Calm banner on the weekly board: changes from voice notes waiting for her OK (one tap: "Do them"),
+// then activities that voice notes added or moved.
+let waitingOk = 0;
+export async function refreshWaiting() {
+  try { waitingOk = await confirmCount(); } catch (e) { waitingOk = 0; }
+  renderBanner();
+}
 export function renderBanner() {
+  if (waitingOk) {
+    $('voiceBanner').innerHTML = `<div class="voice-banner"><p><strong>${t('From your voice notes:')}</strong> ${t(waitingOk === 1 ? '{n} change is waiting for your OK.' : '{n} changes are waiting for your OK.', { n: waitingOk })}</p><button class="primary" data-confirm-all>${t('Do them')}</button><button data-view-voice>${t('See them first')}</button></div>`;
+    return;
+  }
   let count = 0;
   DAYS.forEach((d) => PERIODS.forEach((p) => ctx.state.schedule[d][p].forEach((a) => a.voiceNew && count++)));
   $('voiceBanner').innerHTML = count ? `<div class="voice-banner"><p><strong>${t('From your voice notes:')}</strong> ${t(count === 1 ? '{n} activity was added or moved. It is marked “new”.' : '{n} activities were added or moved. They are marked “new”.', { n: count })}</p><button data-view-voice>${t('See changes')}</button><button data-clear-new>${t('Got it')}</button></div>` : '';
@@ -83,6 +103,10 @@ export async function processAll() {
 
 // Clicks on the voice page and banner. Returns true when handled.
 export function handleVoiceClick(e, showView) {
+  const one = e.target.closest('[data-confirm-note]');
+  if (one) { one.disabled = true; confirmNote(one.dataset.confirmNote).then((n) => { toast(n?.status === 'applied' ? t('Done.') : t('Done, except what I could not place (see “To sort”).')); refreshWaiting(); renderVoiceView(); }); return true; }
+  const all = e.target.closest('[data-confirm-all]');
+  if (all) { all.disabled = true; confirmAll().then((list) => { toast(t(list.length > 1 ? '{n} voice notes done.' : '{n} voice note done.', { n: list.length })); refreshWaiting(); if (!$('voiceView').classList.contains('hidden')) renderVoiceView(); }); return true; }
   const undo = e.target.closest('[data-undo]');
   if (undo && undo.closest('#voiceView')) { const r = undoChange(undo.dataset.undo); toast(r.message); renderVoiceView(); return true; }
   const retry = e.target.closest('[data-retry]');

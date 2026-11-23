@@ -23,7 +23,6 @@
 <div class="layout">
 <nav class="sidebar" aria-label="Main navigation">
   <button class="navbtn active" data-view="weekly">Week</button>
-  <button class="navbtn" data-view="daily">One day</button>
   <button class="navbtn" data-view="activities">My activities</button>
   <button class="navbtn" data-view="voice">Voice notes <span id="voiceCount" class="nav-count hidden"></span></button>
   <button class="navbtn" data-view="device">Reminder device</button>
@@ -34,7 +33,7 @@
 <div id="demoBanner" class="demo-banner hidden" role="status"><span>Demo mode: an example week. Your own planner is safe and comes back when demo mode is off.</span><button type="button" id="demoReset" class="small">Start the demo again</button><button type="button" id="demoExit" class="small">Leave demo mode</button></div>
 <section id="weeklyView" class="view" aria-labelledby="weekTitle">
   <div class="calendar-toolbar" aria-label="Week navigation and actions">
-    <div class="calendar-nav"><h2 id="weekTitle" class="sr-only">My week</h2><button id="prevWeekBtn" aria-label="Previous week">←</button><button id="todayWeekBtn">This week</button><button id="nextWeekBtn" aria-label="Next week">→</button><span id="weekRangeLabel" aria-live="polite">This week</span></div>
+    <div class="view-switch" role="group" aria-label="Show"><button type="button" data-layout="week" aria-pressed="true">Week</button><button type="button" data-layout="day" aria-pressed="false">One day</button></div><div class="calendar-nav"><h2 id="weekTitle" class="sr-only">My week</h2><button id="prevWeekBtn" aria-label="Previous week">←</button><button id="todayWeekBtn">This week</button><button id="nextWeekBtn" aria-label="Next week">→</button><span id="weekRangeLabel" aria-live="polite">This week</span></div>
     <div class="week-actions"><button id="weeklyAddActivity" class="primary">New activity</button><button id="photoBtn">Add from a photo</button><button id="suggestBtn" aria-expanded="false" aria-controls="overloadAlerts">Suggestions</button><button id="weekMoreBtn">More</button></div>
   </div>
   <div id="voiceBanner" role="status" aria-live="polite"></div>
@@ -48,6 +47,12 @@
     </aside>
     <div class="week-main">
       <div id="weekGrid" class="week-grid" aria-label="Weekly schedule board"></div>
+      <section id="dayPanel" class="day-panel hidden" aria-labelledby="dayTitle">
+    <div class="day-head"><div><h2 id="dayTitle">One day</h2><p id="dayDate" class="muted"></p></div><button type="button" id="dailyPrint" class="small">Print this day</button></div>
+    <div id="dayStrip" class="day-strip" role="group" aria-label="Choose a day"></div>
+    <div id="dayBudget" class="day-budget"></div>
+    <div id="daySlots" class="day-list"></div>
+  </section>
       <div class="energy-key" id="energyKey" aria-label="Energy key"></div>
       <section class="tray" aria-labelledby="trayTitle">
         <div class="row" style="justify-content:space-between"><div><h3 id="trayTitle">Later this week</h3><p class="muted" style="font-size:.85em">For when there is energy. Drag one onto a day when ready.</p></div><button class="small" id="trayAdd">Add for later</button></div>
@@ -55,12 +60,6 @@
       </section>
     </div>
   </div>
-  <section id="dayPanel" class="day-panel" aria-labelledby="dayTitle">
-    <div class="day-head"><div><h2 id="dayTitle">One day</h2><p id="dayDate" class="muted"></p></div><button type="button" id="dailyPrint" class="small">Print this day</button></div>
-    <div id="dayStrip" class="day-strip" role="group" aria-label="Choose a day"></div>
-    <div id="dayBudget" class="day-budget"></div>
-    <div id="daySlots" class="day-list"></div>
-  </section>
 </section>
 <section id="activitiesView" class="view hidden">
   <div class="viewhead"><div><h2>My activities</h2><p>The activities you do often. Use them again and again.</p></div><div class="row"><button class="primary" id="openAddActivity">New activity</button><button id="openSplit">Split a task over days</button></div></div>
@@ -69,6 +68,7 @@
 <section id="voiceView" class="view hidden">
   <div class="viewhead"><div><h2>Voice notes</h2><p>Notes recorded on this iPad or on the reminder device. They are understood on this device; nothing is sent online.</p></div><div class="row"><button class="primary" id="voiceRecordBtn2">🎙 Record a note</button><button id="processNotesBtn">Process waiting notes</button></div></div>
   <div id="voiceProgress" class="notice hidden" role="status" aria-live="polite"></div>
+  <div class="panel"><h3>Waiting for your OK</h3><p class="muted">What I understood from your voice notes. Nothing changes until you press “Yes, do it”.</p><div id="confirmList"></div></div>
   <div class="two-col">
     <div class="panel"><h3>Recent changes from voice</h3><p class="muted">Every change made from a voice note is listed here. Undo puts things back as they were.</p><div id="changeLog"></div></div>
     <div class="panel"><h3>To sort</h3><p class="muted">Notes I could not place in the calendar. Listen again, fix the words, or delete.</p><div id="toSortList"></div></div>
@@ -120,7 +120,7 @@
   </div>
   </div>
   <div class="panel"><h3>Quiet times</h3><p class="muted" style="margin-bottom:8px">During these activities the reminder device does not vibrate or beep. Reminders wait until after.</p><div id="quietList" class="quiet-list"></div></div>
-  <div class="panel"><h3>Voice understanding</h3><div class="field"><label for="modelSelect">Speech model (runs on this iPad, nothing is sent online)</label><select id="modelSelect"><option value="Xenova/whisper-tiny.en">Small and fast (about 40 MB)</option><option value="Xenova/whisper-base.en">More accurate, slower (about 80 MB)</option></select></div><div class="setting-row"><div><strong>Download the speech model now</strong><p id="modelStatus">Downloaded once, then works without internet.</p></div><button id="preloadModelBtn">Download</button></div></div>
+  <div class="panel"><h3>Voice understanding</h3><div class="field"><label for="modelSelect">Speech model (runs on this iPad, nothing is sent online)</label><select id="modelSelect"><option value="Xenova/whisper-base.en">More accurate (about 80 MB, default)</option><option value="Xenova/whisper-tiny.en">Small and fast (about 40 MB)</option></select></div><div class="setting-row"><div><strong>Download the speech model now</strong><p id="modelStatus">Downloaded once, then works without internet.</p></div><button id="preloadModelBtn">Download</button></div></div>
   <div class="panel"><h3>Keep my schedule safe</h3><div class="setting-row"><div><strong>Storage on this iPad</strong><p id="persistStatus">Checking…</p></div></div><div class="setting-row"><div><strong>Safety copies</strong><p>The planner keeps a copy of everything once a day and before each update. If something goes wrong, go back to one.</p><div id="copyList" class="copy-list"></div></div></div><div class="setting-row" id="homeScreenRow"><div><strong>Home Screen</strong><p id="homeScreenText"></p></div></div><div class="setting-row"><div><strong>Save a backup file</strong><p>Saves your activities, week and settings to a file (Files app or iCloud Drive).</p></div><button id="exportBtn">Save backup</button></div><div class="setting-row"><div><strong>Load a backup file</strong><p>Replaces the planner with a backup you saved earlier.</p></div><label class="file-button"><input id="importInput" type="file" accept="application/json,.json"><span>Load backup</span></label></div><div class="setting-row"><div><strong>Demo device</strong><p>A pretend reminder device, for testing without the hardware.</p></div><button id="demoToggle" class="switch" role="switch" aria-checked="false" aria-label="Use demo device"></button></div></div>
   <div class="panel"><h3>About</h3><p class="muted" id="appVersion"></p>
     <div class="setting-row"><div><strong>Demo mode (Design Day)</strong><p>Shows an example week to visitors. Your own planner is kept apart and comes back when demo mode is off.</p></div><button id="demoModeToggle" class="switch" role="switch" aria-checked="false" aria-label="Demo mode"></button></div><div class="row" style="margin-top:8px"><button id="checkUpdateBtn" class="small">Check for updates</button><span id="updateStatus" class="muted"></span></div></div>

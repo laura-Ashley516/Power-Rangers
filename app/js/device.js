@@ -76,6 +76,7 @@ export class FakeTransport {
   static notes = []; // { id, time, bytes: Uint8Array }  shared while the page is open
   static nextId = 1;
   static payload = 180;
+  static state = null; // v3: the planner copy kept on the demo device { bytes, at }
 
   constructor() {
     this.name = 'Demo device';
@@ -112,7 +113,33 @@ export class FakeTransport {
     if (this.receiving && !cmd.startsWith('SCHEDULE_END')) { this.buffer.push(line); return; }
     switch (cmd) {
       // v2 like the firmware (Nov 2026): clock times as a 5th schedule field, quiet times.
-      case 'HELLO': return this.reply(`HELLO|2|${this.name}|${this.schedule.length}|${this.notes.length}|${FakeTransport.payload}`);
+      case 'HELLO': return this.reply(`HELLO|3|${this.name}|${this.schedule.length}|${this.notes.length}|${FakeTransport.payload}`);
+      // v3: a full copy of the planner, kept as bytes (like the firmware's /state.bin)
+      case 'STATE_START': this.stateIn = { bytes: Number(args[0]), chunks: Number(args[1]), at: Number(args[2]), parts: [] }; return;
+      case 'S': if (this.stateIn) this.stateIn.parts[Number(args[0])] = fromBase64(args[1]); return;
+      case 'STATE_END': {
+        const st = this.stateIn;
+        this.stateIn = null;
+        if (!st || st.parts.length !== st.chunks || st.parts.some((p) => !p)) return this.reply('ERR|STATE|incomplete');
+        const all = new Uint8Array(st.bytes);
+        let o = 0, sum = 0;
+        for (const p of st.parts) { all.set(p, o); o += p.length; p.forEach((b) => (sum = (sum + b) % 65536)); }
+        if (o !== st.bytes || sum !== Number(args[0])) return this.reply('ERR|STATE|sum');
+        FakeTransport.state = { bytes: all, at: st.at };
+        return this.reply(`STATE_SAVED|${all.length}`);
+      }
+      case 'STATE_GET': {
+        const st = FakeTransport.state;
+        if (!st) return this.reply('STATE_NONE');
+        const size = noteChunkBytes(FakeTransport.payload);
+        const chunks = Math.ceil(st.bytes.length / size);
+        let sum = 0;
+        st.bytes.forEach((b) => (sum = (sum + b) % 65536));
+        const out = [`STATE_DATA|${st.bytes.length}|${chunks}|${st.at}`];
+        for (let i = 0; i < chunks; i++) out.push(`S|${i}|${toBase64(st.bytes.subarray(i * size, i * size + size))}`);
+        out.push(`STATE_DATA_END|${sum}`);
+        return this.reply(...out);
+      }
       case 'QUIET_START': this.quiet = []; return;
       case 'Q': this.quiet = [...(this.quiet || []), args.join('|')]; return;
       case 'QUIET_END': return Number(args[0]) === (this.quiet || []).length ? this.reply(`QUIET_RECEIVED|${this.quiet.length}`) : this.reply(`ERR|QUIET|${(this.quiet || []).length}`);
@@ -324,4 +351,48 @@ export class DeviceLink {
   }
 
   async deleteNote(id) { await this.command(`NOTE_DEL|${id}`, ['OK|DEL']); }
+
+  // ---------- v3: a full copy of the planner kept on the device (docs/protocol.md) ----------
+  // bytes: the planner, gzip-compressed (store.packState). The device stores them without reading them.
+  async sendState(bytes, savedAt = Date.now()) {
+    if (!(this.version >= 3)) return false;
+    const size = noteChunkBytes(this.payload || 180);
+    const chunks = Math.ceil(bytes.length / size);
+    let sum = 0;
+    bytes.forEach((b) => (sum = (sum + b) % 65536));
+    this.lines = [];
+    await this.send(`STATE_START|${bytes.length}|${chunks}|${Math.floor(savedAt / 1000)}`);
+    for (let i = 0; i < chunks; i++) {
+      await this.send(`S|${i}|${toBase64(bytes.subarray(i * size, i * size + size))}`);
+      await sleep(this.t.chunkGap ?? 12);
+    }
+    await this.send(`STATE_END|${sum}`);
+    const r = await this.until(['STATE_SAVED|'], 8000);
+    if (Number(r.split('|')[1]) !== bytes.length) throw new Error('The device did not keep the whole copy.');
+    return true;
+  }
+
+  // The copy kept on the device: { bytes, savedAt } or null when it has none.
+  async getState() {
+    if (!(this.version >= 3)) return null;
+    const start = await this.command('STATE_GET', ['STATE_DATA|', 'STATE_NONE'], 5000);
+    if (start.startsWith('STATE_NONE')) return null;
+    const [, bytesText, chunksText, unix] = start.split('|');
+    const total = Number(bytesText), chunks = Number(chunksText);
+    const parts = new Array(chunks);
+    let endSum = null;
+    for (;;) {
+      const line = await this.read(5000);
+      if (line.startsWith('STATE_DATA_END|')) { endSum = Number(line.split('|')[1]); break; }
+      if (!line.startsWith('S|')) continue;
+      const i = line.indexOf('|', 2);
+      parts[Number(line.slice(2, i))] = fromBase64(line.slice(i + 1));
+    }
+    if (parts.length !== chunks || parts.some((p) => !p)) throw new Error('Some pieces of the copy were missing.');
+    const out = new Uint8Array(total);
+    let offset = 0, sum = 0;
+    for (const p of parts) { out.set(p, offset); offset += p.length; p.forEach((b) => (sum = (sum + b) % 65536)); }
+    if (offset !== total || sum !== endSum) throw new Error('The copy arrived damaged.');
+    return { bytes: out, savedAt: Number(unix) * 1000 };
+  }
 }

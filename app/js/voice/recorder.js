@@ -6,9 +6,10 @@
 import { MAX_RECORDING_SECONDS, SILENCE_STOP_SECONDS } from '../config.js';
 import { t } from '../i18n.js';
 import { $, esc, showPanelModal, closeModal, toast } from '../ui-kit.js';
-import { saveNote, processNote, applyText, undoChange } from './notes.js';
+import { saveNote, processNote, planText, applyPlan, confirmNote, undoChange } from './notes.js';
 import { onStatus, getStatus, decodeTo16k, measure } from './transcribe.js';
 import { pcmWav } from './wav.js';
+import { refreshWaiting } from './inbox.js';
 
 // Records with TWO methods at the same time and keeps whichever actually heard something:
 //  1. raw sound through the Web Audio API (we build a plain WAV ourselves, works everywhere);
@@ -192,7 +193,7 @@ export function openVoiceModal() {
     showResults(done);
   }
 
-  $('closeVoice').onclick = () => { clearInterval(timer); recorder?.cancel(); unsub(); closeModal(); };
+  $('closeVoice').onclick = () => { clearInterval(timer); recorder?.cancel(); unsub(); closeModal(); refreshWaiting(); };
 
   $('recBtn').onclick = async () => {
     if (recorder?.recording) { finish(); return; }
@@ -235,7 +236,7 @@ export function openVoiceModal() {
   $('applyTyped').onclick = () => {
     const text = $('typedCommand').value.trim();
     if (!text) { status.textContent = t('Type what should change first.'); return; }
-    showResults({ status: 'typed', transcript: text, results: applyText(text) });
+    showResults({ status: 'typed', transcript: text, plan: planText(text) });
   };
 
   function showResults(note) {
@@ -248,17 +249,29 @@ export function openVoiceModal() {
       return;
     }
     status.innerHTML = `${t('I heard:')} <strong>“${esc(note.transcript)}”</strong>`;
-    const results = note.results || [];
-    const draw = () => {
-      $('recResults').innerHTML = renderResults(results) + (results.some((r) => r.ok) ? `<div class="modal-actions" style="justify-content:flex-start"><button type="button" class="primary" id="seeWeek">${t('See it in the week')}</button></div>` : '');
-      $('recResults').querySelectorAll('[data-undo]').forEach((b) => (b.onclick = () => {
-        const r = undoChange(b.dataset.undo);
-        toast(r.message);
-        if (r.ok) { b.disabled = true; b.textContent = t('Undone'); }
-      }));
-      $('seeWeek')?.addEventListener('click', () => { clearInterval(timer); unsub(); closeModal(); document.querySelector('[data-view="weekly"]')?.click(); });
+    // Nothing changes yet: what was understood is shown, and ONE button does it all (client decision, Nov 2026).
+    const plan = note.plan || [];
+    const todo = plan.filter((p) => p.ok);
+    const notUnderstood = [...plan.filter((p) => !p.ok), ...(note.results || []).filter((r) => !r.ok && !plan.includes(r))];
+    if (!todo.length) { $('recResults').innerHTML = renderResults(notUnderstood); return; }
+    $('recResults').innerHTML = `<div class="confirm-box"><strong>${t('Should I do this?')}</strong><ul class="result-list">${todo.map((p) => `<li class="ok">${esc(p.summary)}${p.warnings?.length ? `<br><small>${t('Note:')} ${esc(p.warnings[0])}</small>` : ''}</li>`).join('')}</ul>
+      <div class="modal-actions" style="justify-content:flex-start"><button type="button" class="primary big-yes" id="voiceYes">${t('Yes, do it')}</button><button type="button" id="voiceNo">${t('No')}</button></div></div>${notUnderstood.length ? renderResults(notUnderstood) : ''}`;
+    $('voiceYes').focus();
+    $('voiceNo').onclick = () => { $('recResults').innerHTML = ''; status.textContent = t('Nothing was changed.'); };
+    $('voiceYes').onclick = async () => {
+      const done = note.id ? (await confirmNote(note.id))?.results || [] : applyPlan(plan, { heard: note.transcript });
+      const draw = () => {
+        $('recResults').innerHTML = renderResults(done.filter((r) => r.ok || !notUnderstood.includes(r))) + (done.some((r) => r.ok) ? `<div class="modal-actions" style="justify-content:flex-start"><button type="button" class="primary" id="seeWeek">${t('See it in the week')}</button></div>` : '');
+        $('recResults').querySelectorAll('[data-undo]').forEach((b) => (b.onclick = () => {
+          const r = undoChange(b.dataset.undo);
+          toast(r.message);
+          if (r.ok) { b.disabled = true; b.textContent = t('Undone'); }
+        }));
+        $('seeWeek')?.addEventListener('click', () => { clearInterval(timer); unsub(); closeModal(); document.querySelector('[data-view="weekly"]')?.click(); });
+      };
+      draw();
+      status.textContent = t('Done.');
     };
-    draw();
   }
 }
 

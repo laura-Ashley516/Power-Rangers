@@ -98,6 +98,23 @@ dev → QUIET_RECEIVED|<n>
 - During a quiet block the device does **not vibrate or beep**. A reminder that falls in it is shown on the screen at once, and its buzz waits until the block ends.
 - The list replaces the previous one (send all blocks every time). Saved on the microSD like the schedule.
 
+### Automatic backup of the whole planner on the device (v3, Nov 2026)
+Her data must never be at risk and she should never have to make a backup herself. So the app keeps a **full copy of the planner** (all weeks, activities, settings) on the device's microSD, automatically: a few seconds after each change when the device is reachable, and at every Sync. The device does not read it: it stores bytes.
+```
+app → STATE_START|<bytes>|<chunks>|<unixSeconds>
+app → S|<seq>|<base64>                   (seq = 0 … chunks-1, same chunk size rule as voice notes, max 120 raw bytes)
+app → STATE_END|<sum16>                  (sum of all raw bytes, modulo 65536)
+dev → STATE_SAVED|<bytes>                (or ERR|STATE|<reason>: nothing replaced)
+
+app → STATE_GET
+dev → STATE_NONE                         (no copy yet)
+   or STATE_DATA|<bytes>|<chunks>|<unixSeconds>, then S|<seq>|<base64> lines, then STATE_DATA_END|<sum16>
+```
+- `<bytes>` = the planner as JSON, **gzip-compressed** by the app (typically 5–30 KB). Maximum 256 KB.
+- The device writes `/state.tmp`, checks size and sum, keeps the previous copy as `/state.prev`, then renames to `/state.bin` (time in `/state.txt`). A transfer that stops halfway changes nothing.
+- Only for devices that answer `HELLO|3`. Over Wi-Fi the lines are end-to-end encrypted like every other message (see below).
+- The app uses it to restore: when the planner is empty (new iPad, Safari cleared, new Home Screen icon) it offers "Restore your planner from the device".
+
 ## Wi-Fi (through an MQTT broker)
 
 Same commands as above, carried by MQTT instead of Bluetooth (why: [wifi-plan.md](wifi-plan.md)). The app connects with **MQTT over secure WebSocket** (`wss://…`); the device connects to the **same broker** with **MQTT over TLS** (port 8883 on most brokers).
@@ -116,7 +133,12 @@ Same commands as above, carried by MQTT instead of Bluetooth (why: [wifi-plan.md
 - The app waits up to **6 s** for `HELLO` over Wi-Fi. If the device does not answer, the app says the device is offline (there is no v0 over Wi-Fi).
 - **Device setup (once):** if it has no saved Wi-Fi, the device opens a setup hotspot **`PWR-Setup`** (WiFiManager) with fields: home Wi-Fi name + password, broker host, broker port, broker username + password, pairing code.
 - **Prototype 2:** the device stays connected while it is switched on at home. **Later (battery):** connect only for a sync (Sync button or every N minutes), then turn Wi-Fi off.
-- **Privacy:** the connection is encrypted (TLS). End-to-end encryption with a key derived from the pairing code is planned, so the broker cannot read the messages either.
+- **Privacy (v3, Nov 2026): end-to-end encryption.** "Nothing readable is sent online": every message on `pwr/<id>/app` and `pwr/<id>/dev` is encrypted on the iPad and on the device, so the broker (and anyone on a public broker) only sees scrambled bytes. The `status` topic stays plain text (`online` / `offline`, nothing personal).
+  - Key: **SHA-256** of the UTF-8 text `pwr-e2e-key|` + the 12 code characters (upper case, no dashes) → 32 bytes, **AES-256-GCM**.
+  - Sealed bytes = **12-byte random IV** ‖ **ciphertext** ‖ **16-byte tag**; the MQTT payload is these bytes as **base64 text** (standard alphabet, `=` padding), so both MQTT libraries carry it as a plain string. Additional authenticated data = the **topic name** (UTF-8), so a message cannot be replayed on the other topic.
+  - Plaintext = one protocol line (UTF-8), exactly as over Bluetooth. A message that does not decrypt is ignored (and logged on the device's serial port).
+  - **Test vector:** code `ABCD-EFGH-JKLM` → `<id>` = `3f63d25fcb89`, key = `37fa3af32f5084438220beda2088be4565ebbef889252d743fc88230aae0d7d3`. Line `HELLO|3` on topic `pwr/3f63d25fcb89/app` with IV `000102030405060708090a0b` → sealed bytes `000102030405060708090a0bd4a8a89d03e6dbbb11c7f9bdaa3631bbcd8985ab3d43c9` → MQTT payload `AAECAwQFBgcICQoL1KionQPm27sRx/m9qjYxu82Jhas9Q8k=`.
+  - Device side: mbedTLS `mbedtls_gcm_*` (part of the ESP32 core); random IV from `esp_fill_random`.
 - **Testing:** a public test broker (e.g. `wss://broker.emqx.io:8084/mqtt`, no password) is fine with **demo data only**: anyone can read a public broker. `tools/wifi-fake-device.mjs` is a pretend device that answers over Wi-Fi exactly like the firmware should.
 
 ## v0 — what the first-try code does (still accepted)

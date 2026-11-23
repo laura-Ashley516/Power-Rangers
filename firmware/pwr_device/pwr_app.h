@@ -1,7 +1,7 @@
 // =====================================================================
 //  pwr_app.h  -  functions written in pwr_device.ino that other files call
 // =====================================================================
-//  The Bluetooth code (pwr_protocol.cpp) uses these to tell the main
+//  The Bluetooth / Wi-Fi code (pwr_protocol.cpp) uses these to tell the main
 //  sketch that something changed, so the main sketch can redraw the
 //  screen. They are always called from loop(), never from a BLE callback.
 // =====================================================================

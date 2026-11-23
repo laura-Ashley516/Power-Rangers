@@ -38,10 +38,13 @@ export const REST_AFTER_RED_MIN = 30; // the client's rule: a red activity needs
 export const MAX_DEVICE_ACTIVITIES = 35;
 
 // Voice
-export const DEFAULT_SPEECH_MODEL = 'Xenova/whisper-tiny.en';
-export const MAX_RECORDING_SECONDS = 20;
+// The more accurate model (team decision, Nov 2026): slower and ~80 MB, downloaded once.
+export const DEFAULT_SPEECH_MODEL = 'Xenova/whisper-base.en';
+// Same longest note as the reminder device (firmware RECORD_MAX_MS = 15 s): team decision, Nov 2026.
+export const MAX_RECORDING_SECONDS = 15;
 // The recording stops by itself after this much silence once she has started speaking (client feedback, Nov 16).
-export const SILENCE_STOP_SECONDS = 2;
+// 4 s, not 2: people with a brain injury often pause mid-sentence to find a word (team decision, Nov 2026).
+export const SILENCE_STOP_SECONDS = 4;
 
 // Optional clock time of an activity ("10:30"): the time of day (Morning…) follows from it.
 export function periodOfTime(hhmm) {

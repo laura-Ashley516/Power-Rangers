@@ -6,6 +6,10 @@
 //    /notes/<id>.wav    a voice note (WAV, 16-bit, mono, 8000 Hz)
 //    /notes/<id>.txt    unix time when the note was recorded (0 = clock not set)
 //    /notes/next.txt    the id the next note will get
+//    /state.bin         v3: the app's full planner copy (gzip bytes, the device does not read it)
+//    /state.prev        v3: the copy before that one
+//    /state.txt         v3: unix time sent with the copy (STATE_START)
+//    /state.tmp         v3: a copy being received (only renamed when complete)
 //
 //  If there is no card, every function fails safely (returns false / 0)
 //  and the rest of the device keeps working.
@@ -45,3 +49,12 @@ File storageCreateNoteFile(int &idOut);   // new /notes/<id>.wav, open for writi
 bool storageCommitNote(int id, uint32_t unixTime);   // after recording: save time, advance id
 void storageDiscardNote(int id);          // remove a note that was too short
 bool storageDeleteNote(int id);           // NOTE_DEL: remove .wav and .txt
+
+// v3 planner copy (STATE_START / S / STATE_END, STATE_GET).
+bool storageStateBeginWrite();                          // (re)creates /state.tmp, open for writing
+bool storageStateWrite(const uint8_t *data, size_t n);  // append to /state.tmp
+void storageStateAbortWrite();                          // close and remove /state.tmp
+// Close /state.tmp, check its size, keep /state.bin as /state.prev, rename, write /state.txt.
+bool storageStateCommit(uint32_t expectedBytes, uint32_t unixTime);
+bool storageStateInfo(uint32_t &bytes, uint32_t &unixTime);   // false = no copy yet
+File storageOpenStateForReading();                            // /state.bin (or /state.prev)

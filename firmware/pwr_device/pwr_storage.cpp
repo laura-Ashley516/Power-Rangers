@@ -16,6 +16,12 @@ static const char *SCHEDULE_TMP  = "/schedule.tmp";
 static const char *QUIET_FILE    = "/quiet.txt";   // v2: one "day|period" per line
 static const char *NOTES_DIR     = "/notes";
 static const char *NEXT_ID_FILE  = "/notes/next.txt";
+static const char *STATE_FILE    = "/state.bin";    // v3 planner copy
+static const char *STATE_PREV    = "/state.prev";
+static const char *STATE_TMP     = "/state.tmp";
+static const char *STATE_TIME    = "/state.txt";
+
+static File stateTmpFile;   // open while a planner copy is being received
 
 static String wavPath(int id)  { return String(NOTES_DIR) + "/" + String(id) + ".wav"; }
 static String timePath(int id) { return String(NOTES_DIR) + "/" + String(id) + ".txt"; }
@@ -284,4 +290,89 @@ bool storageLoadQuiet() {
   }
   f.close();
   return true;
+}
+
+// ---------------------------------------------------------------------
+//  v3 planner copy. The device only stores the bytes, it never reads them.
+//  A transfer that stops halfway leaves /state.bin as it was.
+// ---------------------------------------------------------------------
+bool storageStateBeginWrite() {
+  if (!sdOk) return false;
+  if (stateTmpFile) stateTmpFile.close();
+  if (SD.exists(STATE_TMP)) SD.remove(STATE_TMP);
+  stateTmpFile = SD.open(STATE_TMP, FILE_WRITE);
+  if (!stateTmpFile) {
+    Serial.println("SD: cannot create /state.tmp.");
+    return false;
+  }
+  return true;
+}
+
+bool storageStateWrite(const uint8_t *data, size_t n) {
+  if (!sdOk || !stateTmpFile) return false;
+  return stateTmpFile.write(data, n) == n;
+}
+
+void storageStateAbortWrite() {
+  if (stateTmpFile) stateTmpFile.close();
+  if (sdOk && SD.exists(STATE_TMP)) SD.remove(STATE_TMP);
+}
+
+bool storageStateCommit(uint32_t expectedBytes, uint32_t unixTime) {
+  if (!sdOk || !stateTmpFile) return false;
+  stateTmpFile.close();
+
+  // Check what really reached the card.
+  File check = SD.open(STATE_TMP, FILE_READ);
+  uint32_t size = check ? (uint32_t)check.size() : 0;
+  if (check) check.close();
+  if (size != expectedBytes) {
+    Serial.printf("SD: /state.tmp has %lu bytes, expected %lu.\n", (unsigned long)size, (unsigned long)expectedBytes);
+    SD.remove(STATE_TMP);
+    return false;
+  }
+
+  // Keep the previous copy, then swap the new one in.
+  if (SD.exists(STATE_FILE)) {
+    if (SD.exists(STATE_PREV)) SD.remove(STATE_PREV);
+    if (!SD.rename(STATE_FILE, STATE_PREV)) {
+      Serial.println("SD: could not keep /state.prev.");
+      SD.remove(STATE_FILE);   // FAT cannot rename onto an existing file
+    }
+  }
+  if (!SD.rename(STATE_TMP, STATE_FILE)) {
+    Serial.println("SD: rename of /state.tmp failed.");
+    return false;
+  }
+  writeSmallFile(STATE_TIME, String(unixTime));
+  Serial.printf("SD: planner copy saved, %lu bytes.\n", (unsigned long)expectedBytes);
+  return true;
+}
+
+// The copy to send back: /state.bin, or /state.prev if a power cut hit between the two renames.
+static const char *statePathToRead() {
+  if (SD.exists(STATE_FILE)) return STATE_FILE;
+  if (SD.exists(STATE_PREV)) return STATE_PREV;
+  return nullptr;
+}
+
+bool storageStateInfo(uint32_t &bytes, uint32_t &unixTime) {
+  bytes = 0;
+  unixTime = 0;
+  if (!sdOk) return false;
+  const char *path = statePathToRead();
+  if (path == nullptr) return false;
+  File f = SD.open(path, FILE_READ);
+  if (!f) return false;
+  bytes = (uint32_t)f.size();
+  f.close();
+  unixTime = (uint32_t)strtoul(readSmallFile(STATE_TIME).c_str(), nullptr, 10);
+  return bytes > 0;
+}
+
+File storageOpenStateForReading() {
+  if (!sdOk) return File();
+  const char *path = statePathToRead();
+  if (path == nullptr) return File();
+  return SD.open(path, FILE_READ);
 }
