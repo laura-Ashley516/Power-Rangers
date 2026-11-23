@@ -54,6 +54,7 @@ function applySettings() {
   $('reminderLead').value = s.lead;
   $('modelSelect').value = s.speechModel;
   $('weekStartSelect').value = s.weekStart || 'Sunday';
+  $('startViewSelect').value = s.startView === 'today' ? 'today' : 'weekly';
   $('fontSelect').value = s.font || 'system';
   $('spacingSelect').value = s.spacing || 'comfortable';
   document.body.classList.toggle('font-atkinson', s.font === 'atkinson');
@@ -128,6 +129,10 @@ $('fontSelect').onchange = (e) => { setting('font', e.target.value); toast('Font
 $('spacingSelect').onchange = (e) => { setting('spacing', e.target.value); toast('Spacing saved.'); };
 
 $('themeSelect').onchange = (e) => { setting('theme', e.target.value); toast('Colours saved.'); };
+$('startViewSelect').onchange = (e) => {
+  setting('startView', e.target.value === 'today' ? 'today' : 'weekly');
+  toast('Opening page saved. This page will open next time.');
+};
 $('weekStartSelect').onchange = (e) => {
   setting('weekStart', e.target.value);
   commit({ ...ctx.state, shownWeek: weekKey(ctx.weekOffset) }); // the week on screen keeps its activities under its new first day
@@ -351,6 +356,7 @@ window.addEventListener('offline', () => ($('offlineBadge').textContent = 'Offli
 $('appVersion').textContent = `Version ${APP_VERSION}`;
 renderGuide();
 commit(ctx.state);
+showView(ctx.state.settings.startView === 'today' ? 'today' : 'weekly');
 updateClock();
 setInterval(() => { updateClock(); if (!$('todayView').classList.contains('hidden')) renderToday(); }, 60000);
 updateCount();

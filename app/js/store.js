@@ -52,6 +52,7 @@ export const defaultSettings = () => ({
   connection: 'bluetooth', // 'bluetooth' or 'wifi' (docs/wifi-plan.md)
   wifi: { broker: '', username: '', password: '', code: '' },
   weekStart: 'Sunday',     // her kitchen calendar starts on Sunday
+  startView: 'weekly',     // page to open: 'weekly' or 'today'
   font: 'system',          // 'system', 'atkinson' or 'serif' (docs/design-evidence.md: let her choose)
   size: 'standard',        // 'small' 15 px · 'standard' 17 px · 'large' 19 px · 'xlarge' 22 px
   spacing: 'comfortable',  // or 'spacious' (W3C COGA: let users adjust white space)
@@ -184,6 +185,7 @@ export function migrate(raw) {
     s.version = 5;
   }
   s.settings = { ...defaultSettings(), ...(s.settings || {}) };
+  s.settings.startView = s.settings.startView === 'today' ? 'today' : 'weekly';
   if (s.settings.large && !raw.settings?.size) s.settings.size = 'large'; // old "Larger text" switch
   s.changeLog = Array.isArray(s.changeLog) ? s.changeLog : [];
   s.leftovers = Array.isArray(s.leftovers) ? s.leftovers : [];
