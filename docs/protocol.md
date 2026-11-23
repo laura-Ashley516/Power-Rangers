@@ -76,7 +76,17 @@ dev → OK|DEL|<id>
 - If anything is missing or the sum is wrong, the app simply asks `NOTE_GET|<id>` again. The note is only deleted after `NOTE_DEL`.
 - The device sends chunks with a small pause (≈ 10 ms) so the phone/iPad can keep up.
 
-### Quiet times (v2, planned for the firmware)
+### Clock time of an activity (v2, Nov 2026)
+```
+app → Monday|Morning|Physio|yellow|10:30   (a 5th field: HH:MM, 24 h, local time)
+dev → B|Monday|Morning|Physio|yellow|10:30 (backup lines carry it too)
+```
+- Sent **only to devices that answer `HELLO|2`**. A v1 device would read `10:30` as the energy, so it never gets the 5th field.
+- The device shows it on the card (`10:30 Physio`) and reminds `REMINDER_LEAD_MIN` before that time. Activities **without** a time keep the block reminder (before 9:00 / 13:00 / 18:00), sent only if the block has at least one activity without a time.
+- Within a time of day, the app sends activities with a time first, in time order.
+- The planner shows the same reminders while it is open (`app/js/reminders.js`, rule in `rules.remindersFor`).
+
+### Quiet times (v2, firmware done Nov 2026, not yet run on the board)
 ```
 app → QUIET_START|<n>
 app → Q|Sunday|Morning                  (n lines: day|period)
@@ -84,7 +94,8 @@ app → QUIET_END|<n>
 dev → QUIET_RECEIVED|<n>
 ```
 - Sent right after a schedule sync, **only to devices that answer `HELLO|2`**. v1 devices never receive it (they would answer `ERR|UNKNOWN`).
-- During a quiet block the device does **not vibrate or beep**. A reminder that falls in it waits and is shown when the block ends.
+- Count mismatch: `ERR|QUIET|<received>` and the old list stays (like the schedule). Saved in `/quiet.txt`.
+- During a quiet block the device does **not vibrate or beep**. A reminder that falls in it is shown on the screen at once, and its buzz waits until the block ends.
 - The list replaces the previous one (send all blocks every time). Saved on the microSD like the schedule.
 
 ## Wi-Fi (through an MQTT broker)

@@ -22,6 +22,7 @@ struct Activity {
   uint8_t period;   // 0..2
   uint8_t energy;   // ENERGY_...
   String  name;
+  int16_t timeMin = -1;   // v2: clock time, minutes after midnight (-1 = no time, remind before the block)
 };
 
 // The schedule that is shown on screen (and saved on the microSD).
@@ -54,3 +55,17 @@ int countActivities(int day, int period);
 
 // Start time of a period in minutes after midnight (local time).
 int periodStartMinutes(int period);
+// Which period a time of day falls in (0..2), or -1 before the morning lead / after the evening.
+int periodAtMinutes(int minutes);
+
+// v2: "10:30" <-> 630. timeFromText returns -1 when the text is not a time.
+int timeFromText(const String &s);
+String timeText(int16_t minutes);          // "10:30" (empty for -1)
+// What the screen shows on a card: "10:30 Physio", or just the name.
+String activityLabel(const Activity &a);
+// How many activities on this day and period have NO clock time (they share the block reminder).
+int countUntimed(int day, int period);
+
+// v2 quiet times: the device does not vibrate during these blocks (QUIET_START / Q / QUIET_END).
+extern bool quietBlocks[NUM_DAYS][NUM_PERIODS];
+bool isQuiet(int day, int period);

@@ -4,6 +4,7 @@
 //
 // Track: C - Rules + voice
 
+import { t } from '../i18n.js';
 import { ctx, commit } from '../context.js';
 import { applyChange, findItem } from '../rules.js';
 import { uid } from '../store.js';
@@ -91,12 +92,12 @@ export function applyText(text, { noteId = null, now = new Date() } = {}) {
 
 export function undoChange(entryId) {
   const entry = ctx.state.changeLog.find((e) => e.id === entryId);
-  if (!entry || entry.undone) return { ok: false, message: 'Already undone.' };
+  if (!entry || entry.undone) return { ok: false, message: t('Already undone.') };
   const r = applyChange(ctx.state, entry.undo);
   if (!r.ok) return r;
   r.state.changeLog = r.state.changeLog.map((e) => (e.id === entryId ? { ...e, undone: true } : e));
   commit(r.state);
-  return { ok: true, message: `Undone: ${entry.summary}.` };
+  return { ok: true, message: t('Undone: {what}.', { what: entry.summary }) };
 }
 
 const statusFor = (results) => {
@@ -110,7 +111,10 @@ export async function processNote(id) {
   await updateNote(id, { status: 'transcribing', error: '' });
   let text;
   try {
-    text = await transcribe(note.bytes, ctx.state.settings.speechModel);
+    // In French the multilingual model of the same size is used (the ".en" models only know English).
+    const fr = ctx.state.settings.lang === 'fr';
+    const model = fr ? ctx.state.settings.speechModel.replace(/\.en$/, '') : ctx.state.settings.speechModel;
+    text = await transcribe(note.bytes, model, fr ? 'french' : null);
   } catch (e) {
     return updateNote(id, { status: 'error', error: e.message });
   }

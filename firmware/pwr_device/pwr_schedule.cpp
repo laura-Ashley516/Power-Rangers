@@ -5,6 +5,7 @@
 
 Activity schedule[MAX_ACTIVITIES];
 int activityCount = 0;
+bool quietBlocks[NUM_DAYS][NUM_PERIODS] = {};
 
 static const char *DAY_NAMES[NUM_DAYS] = {
   "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"
@@ -94,9 +95,51 @@ uint8_t energyFromText(String s) {
   return ENERGY_UNKNOWN;
 }
 
+int timeFromText(const String &sIn) {
+  String s = sIn;
+  s.trim();
+  int colon = s.indexOf(':');
+  if (colon < 1 || colon > 2 || s.length() != (unsigned)(colon + 3)) return -1;
+  for (unsigned i = 0; i < s.length(); i++) {
+    if ((int)i != colon && !isDigit(s.charAt(i))) return -1;
+  }
+  int h = s.substring(0, colon).toInt();
+  int m = s.substring(colon + 1).toInt();
+  if (h > 23 || m > 59) return -1;
+  return h * 60 + m;
+}
+
+String timeText(int16_t minutes) {
+  if (minutes < 0) return "";
+  char buf[6];
+  snprintf(buf, sizeof(buf), "%d:%02d", minutes / 60, minutes % 60);
+  return String(buf);
+}
+
+String activityLabel(const Activity &a) {
+  if (a.timeMin < 0) return a.name;
+  return timeText(a.timeMin) + " " + a.name;
+}
+
+bool isQuiet(int day, int period) {
+  if (day < 0 || day >= NUM_DAYS || period < 0 || period >= NUM_PERIODS) return false;
+  return quietBlocks[day][period];
+}
+
 bool parseActivityLine(const String &lineIn, Activity &out) {
   String line = lineIn;
   line.trim();
+  out.timeMin = -1;
+
+  // v2: an optional 5th field with the clock time ("Monday|Morning|Physio|yellow|10:30").
+  int lastSep = line.lastIndexOf('|');
+  if (lastSep > 0) {
+    int t = timeFromText(line.substring(lastSep + 1));
+    if (t >= 0 && line.indexOf('|') != lastSep) {
+      out.timeMin = (int16_t)t;
+      line = line.substring(0, lastSep);
+    }
+  }
 
   // Find the first, second and last '|' separators.
   int first = line.indexOf('|');
@@ -160,4 +203,20 @@ int periodStartMinutes(int period) {
   if (period == 0) return MORNING_START_MIN;
   if (period == 1) return AFTERNOON_START_MIN;
   return EVENING_START_MIN;
+}
+
+int periodAtMinutes(int minutes) {
+  if (minutes < MORNING_START_MIN) return -1;
+  if (minutes < AFTERNOON_START_MIN) return 0;
+  if (minutes < EVENING_START_MIN) return 1;
+  if (minutes < 22 * 60) return 2;     // the evening ends at 22:00 (same as the planner)
+  return -1;
+}
+
+int countUntimed(int day, int period) {
+  int n = 0;
+  for (int i = 0; i < activityCount; i++) {
+    if (schedule[i].day == day && schedule[i].period == period && schedule[i].timeMin < 0) n++;
+  }
+  return n;
 }

@@ -166,7 +166,8 @@ static bool isCommand(const String &cmd) {
   return cmd == "HELLO" || cmd == "TIME" ||
          cmd == "SCHEDULE_START" || cmd == "SCHEDULE_END" ||
          cmd == "BACKUP_GET" || cmd == "NOTES_LIST" ||
-         cmd == "NOTE_GET" || cmd == "NOTE_DEL";
+         cmd == "NOTE_GET" || cmd == "NOTE_DEL" ||
+         cmd == "QUIET_START" || cmd == "Q" || cmd == "QUIET_END";
 }
 
 // Our own base64 encoder (standard alphabet, with '=' padding).
@@ -274,6 +275,44 @@ static void finishSchedule(const String &line) {
 }
 
 // ---------------------------------------------------------------------
+//  v2 quiet times: QUIET_START|n, Q|day|period (n lines), QUIET_END|n
+//  Like the schedule: a temporary list, replaced only when the counts match.
+// ---------------------------------------------------------------------
+static bool quietTemp[NUM_DAYS][NUM_PERIODS];
+static int  quietCount = 0;
+static int  quietExpected = -1;
+static bool receivingQuiet = false;
+
+static void startQuiet(const String &line) {
+  memset(quietTemp, 0, sizeof(quietTemp));
+  quietCount = 0;
+  quietExpected = field(line, 1).toInt();
+  receivingQuiet = true;
+}
+
+static void addQuietLine(const String &line) {
+  if (!receivingQuiet) return;
+  int d = dayFromText(field(line, 1));
+  int p = periodFromText(field(line, 2));
+  if (d < 0 || p < 0) return;       // a bad line is not counted: the old list stays
+  quietTemp[d][p] = true;
+  quietCount++;
+}
+
+static void finishQuiet(const String &line) {
+  int endCount = field(line, 1).toInt();
+  if (!receivingQuiet || endCount != quietCount || (quietExpected >= 0 && quietExpected != endCount)) {
+    receivingQuiet = false;
+    sendLine("ERR|QUIET|" + String(quietCount));
+    return;
+  }
+  receivingQuiet = false;
+  memcpy(quietBlocks, quietTemp, sizeof(quietBlocks));
+  storageSaveQuiet();
+  sendLine("QUIET_RECEIVED|" + String(quietCount));
+}
+
+// ---------------------------------------------------------------------
 //  Other commands
 // ---------------------------------------------------------------------
 static void handleHello() {
@@ -318,6 +357,7 @@ static void handleBackupGet() {
     const Activity &a = schedule[i];
     String msg = String("B|") + dayName(a.day) + "|" + periodName(a.period) + "|" +
                  a.name + "|" + energyProtocolName(a.energy);
+    if (a.timeMin >= 0) msg += "|" + timeText(a.timeMin);   // v2
     sendLine(msg);
   }
   sendLine("BACKUP_END|" + String(n));
@@ -426,6 +466,9 @@ static void handleCommand(const String &cmd, const String &line) {
   else if (cmd == "NOTES_LIST")     handleNotesList();
   else if (cmd == "NOTE_GET")       handleNoteGet(line);
   else if (cmd == "NOTE_DEL")       handleNoteDel(line);
+  else if (cmd == "QUIET_START")    startQuiet(line);
+  else if (cmd == "Q")              addQuietLine(line);
+  else if (cmd == "QUIET_END")      finishQuiet(line);
   else {
     String shortCmd = cmd;
     if (shortCmd.length() > 150) shortCmd = shortCmd.substring(0, 150);

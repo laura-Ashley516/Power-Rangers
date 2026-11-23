@@ -33,6 +33,8 @@ bool storageReady();
 // Schedule
 bool storageLoadSchedule();   // fills schedule[] / activityCount
 bool storageSaveSchedule();   // writes schedule[] to /schedule.txt
+bool storageLoadQuiet();      // v2: fills quietBlocks from /quiet.txt
+bool storageSaveQuiet();      // v2: writes quietBlocks to /quiet.txt
 
 // Voice notes
 int  storageCountNotes();

@@ -13,6 +13,7 @@ static int nextNoteId = 1;
 
 static const char *SCHEDULE_FILE = "/schedule.txt";
 static const char *SCHEDULE_TMP  = "/schedule.tmp";
+static const char *QUIET_FILE    = "/quiet.txt";   // v2: one "day|period" per line
 static const char *NOTES_DIR     = "/notes";
 static const char *NEXT_ID_FILE  = "/notes/next.txt";
 
@@ -139,6 +140,7 @@ bool storageSaveSchedule() {
     f.print(periodName(a.period)); f.print('|');
     f.print(a.name);            f.print('|');
     f.print(energyName(a.energy));
+    if (a.timeMin >= 0) { f.print('|'); f.print(timeText(a.timeMin)); }   // v2
     f.print('\n');
   }
   f.close();
@@ -248,4 +250,38 @@ bool storageDeleteNote(int id) {
   if (SD.exists(wavPath(id)))  SD.remove(wavPath(id));
   if (SD.exists(timePath(id))) SD.remove(timePath(id));
   return !SD.exists(wavPath(id));
+}
+
+// ---------------------------------------------------------------------
+//  v2 quiet times: /quiet.txt, one "day|period" line per quiet block
+// ---------------------------------------------------------------------
+bool storageSaveQuiet() {
+  if (!sdOk) return false;
+  if (SD.exists(QUIET_FILE)) SD.remove(QUIET_FILE);
+  File f = SD.open(QUIET_FILE, FILE_WRITE);
+  if (!f) return false;
+  for (int d = 0; d < NUM_DAYS; d++) {
+    for (int p = 0; p < NUM_PERIODS; p++) {
+      if (quietBlocks[d][p]) { f.print(dayName(d)); f.print('|'); f.print(periodName(p)); f.print('\n'); }
+    }
+  }
+  f.close();
+  return true;
+}
+
+bool storageLoadQuiet() {
+  if (!sdOk || !SD.exists(QUIET_FILE)) return false;
+  File f = SD.open(QUIET_FILE, FILE_READ);
+  if (!f) return false;
+  memset(quietBlocks, 0, sizeof(quietBlocks));
+  while (f.available()) {
+    String line = f.readStringUntil('\n');
+    int sep = line.indexOf('|');
+    if (sep < 0) continue;
+    int d = dayFromText(line.substring(0, sep));
+    int p = periodFromText(line.substring(sep + 1));
+    if (d >= 0 && p >= 0) quietBlocks[d][p] = true;
+  }
+  f.close();
+  return true;
 }

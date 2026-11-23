@@ -53,7 +53,7 @@ const int PIN_MOTOR = 13;
 #define RX_CHARACTERISTIC "12345678-1234-1234-1234-1234567890ac"   // app -> device (write)
 #define TX_CHARACTERISTIC "12345678-1234-1234-1234-1234567890ad"   // device -> app (notify)
 
-const int PROTOCOL_VERSION   = 1;
+const int PROTOCOL_VERSION   = 2;   // v2: clock time per activity, quiet times (docs/protocol.md)
 const int MAX_MESSAGE_LEN    = 180;  // longest message allowed by the protocol
 const int RX_LINE_BUFFER     = 200;  // a little bigger, so we can detect too-long lines
 const int RX_QUEUE_LENGTH    = 48;   // how many incoming lines can wait for loop()

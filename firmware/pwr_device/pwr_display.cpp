@@ -118,6 +118,7 @@ static int drawActivityCard(const Activity &a, int y) {
   String name = a.name;
   name.trim();
   if (!name.length()) name = "Activity";
+  if (a.timeMin >= 0) name = timeText(a.timeMin) + " " + name;   // v2: "10:30 Physio"
 
   // Prefer a single large line. Use two lines only when the name needs them.
   bool oneLine = nameFitsOneLine(name);
@@ -146,7 +147,7 @@ static void drawPeriodSection(int day, int period, int &y) {
   for (int i = 0; i < activityCount; i++) {
     if (schedule[i].day != day || schedule[i].period != period) continue;
 
-    int cardH = nameFitsOneLine(schedule[i].name) ? 27 : 43;
+    int cardH = nameFitsOneLine(activityLabel(schedule[i])) ? 27 : 43;
     if (y + cardH > bottomLimit) {
       tft.setTextSize(1);
       tft.setTextColor(ILI9341_WHITE);

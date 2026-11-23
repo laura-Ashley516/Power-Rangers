@@ -2,18 +2,29 @@
 // the order of the days on screen, and today's date key.
 
 import { DAYS, ENERGY, PERIODS, PERIOD_TIMES } from './config.js';
+import { t } from './i18n.js';
 
 export const $ = (id) => document.getElementById(id);
 
 export const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 
-export const energyLabel = (e) => (ENERGY[e] || ENERGY.green).label;
+export const energyLabel = (e) => t((ENERGY[e] || ENERGY.green).label);
 // Monochrome line icon instead of the 🔒 emoji (NN/g: icons need text; COGA: avoid busy icon sets).
 export const CARD_ICON = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 4.5h6M9 10h6M9 14h4"/></svg>';
 export const QUIET_ICON = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M8.5 17H5l1.5-2V11a5.5 5.5 0 0 1 8.4-4.7M17.5 11v4l1.5 2h-6M10 20a2 2 0 0 0 4 0M3 3l18 18"/></svg>';
 // "Every week" (a weekly activity): two arrows in a circle. It used to be a lock, but weekly activities can now be moved for one week.
 export const WEEKLY = '<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8 8 0 0 0-14.3-4.9L4 8"/><path d="M4 3.5V8h4.5"/><path d="M4 13a8 8 0 0 0 14.3 4.9L20 16"/><path d="M20 20.5V16h-4.5"/></svg>';
-export const shape = (e) => (ENERGY[e] || ENERGY.green).shape;
+// Energy shapes as small pictures (the same in every browser and on paper): the more points, the more energy.
+// circle = Easy · triangle = Moderate · solid black star = High · pause sign (two bars) = Rest.
+const SHAPES = {
+  green: '<circle cx="12" cy="12" r="8"/>',
+  yellow: '<path d="M12 3.2 21.6 20H2.4z"/>',
+  red: '<path d="M12 1.8l3.05 6.6 7.2.8-5.4 4.9 1.5 7.1L12 17.6l-6.35 3.6 1.5-7.1-5.4-4.9 7.2-.8z"/>',
+  rest: '<rect x="5.5" y="4.5" width="4.5" height="15" rx="1.2"/><rect x="14" y="4.5" width="4.5" height="15" rx="1.2"/>',
+};
+export const shape = (e) => `<svg class="eshape eshape-${ENERGY[e] ? e : 'green'}" viewBox="0 0 24 24" aria-hidden="true" focusable="false">${SHAPES[e] || SHAPES.green}</svg>`;
+// Text version for places that cannot hold a picture (select menus).
+export const shapeText = (e) => (ENERGY[e] || ENERGY.green).shape;
 
 // Days in screen order. The client's kitchen calendar starts on Sunday; Settings can change it.
 export function orderedDays(weekStart = 'Sunday') {
@@ -36,7 +47,7 @@ export function currentPeriodIndex(now = new Date()) {
 let toastTimer;
 export function toast(msg, ms = 4000, action = null) {
   const el = $('toast');
-  el.innerHTML = `<span>${esc(msg)}</span>${action ? `<button type="button" id="toastAction">${esc(action.label)}</button><button type="button" class="toast-close" id="toastClose" aria-label="Close message">Close</button>` : ''}`;
+  el.innerHTML = `<span>${esc(msg)}</span>${action ? `<button type="button" id="toastAction">${esc(action.label)}</button><button type="button" class="toast-close" id="toastClose" aria-label="${t('Close message')}">${t('Close')}</button>` : ''}`;
   el.classList.remove('hidden');
   clearTimeout(toastTimer);
   if (action) {
@@ -47,9 +58,9 @@ export function toast(msg, ms = 4000, action = null) {
 }
 
 // Form modal. onSubmit receives FormData; return false to keep the modal open.
-export function showModal(title, body, onSubmit, { submitLabel = 'Save' } = {}) {
+export function showModal(title, body, onSubmit, { submitLabel = t('Save') } = {}) {
   const root = $('modalRoot');
-  root.innerHTML = `<div class="modal-backdrop" role="presentation"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">${title}</h2><form id="modalForm">${body}<div class="modal-actions"><button type="button" id="cancelModal">Cancel</button><button class="primary" type="submit">${submitLabel}</button></div></form></div></div>`;
+  root.innerHTML = `<div class="modal-backdrop" role="presentation"><div class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle"><h2 id="modalTitle">${title}</h2><form id="modalForm">${body}<div class="modal-actions"><button type="button" id="cancelModal">${t('Cancel')}</button><button class="primary" type="submit">${submitLabel}</button></div></form></div></div>`;
   $('cancelModal').onclick = closeModal;
   root.querySelector('.modal-backdrop').addEventListener('click', (e) => { if (e.target.classList.contains('modal-backdrop')) closeModal(); });
   $('modalForm').onsubmit = (e) => { e.preventDefault(); if (onSubmit(new FormData(e.target)) !== false) closeModal(); };
@@ -68,6 +79,6 @@ export function closeModal() { $('modalRoot').innerHTML = ''; }
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && $('modalRoot')?.innerHTML) closeModal(); });
 
 // Energy picker used in the activity forms: four big labelled choices (shape + word + colour).
-export function energyPicker(name, selected = 'green', legend = 'Energy') {
+export function energyPicker(name, selected = 'green', legend = t('Energy')) {
   return `<fieldset class="field" style="border:0;padding:0;margin:0"><legend style="font-size:.85em;font-weight:750;margin-bottom:5px">${legend}</legend><div class="energy-options">${['green', 'yellow', 'red', 'rest'].map((e) => `<label class="e-${e}"><input type="radio" name="${name}" value="${e}" ${e === selected ? 'checked' : ''}><span class="shape" aria-hidden="true">${shape(e)}</span>${energyLabel(e)}</label>`).join('')}</div></fieldset>`;
 }

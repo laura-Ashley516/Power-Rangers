@@ -111,7 +111,11 @@ export class FakeTransport {
     const [cmd, ...args] = line.split('|');
     if (this.receiving && !cmd.startsWith('SCHEDULE_END')) { this.buffer.push(line); return; }
     switch (cmd) {
-      case 'HELLO': return this.reply(`HELLO|1|${this.name}|${this.schedule.length}|${this.notes.length}|${FakeTransport.payload}`);
+      // v2 like the firmware (Nov 2026): clock times as a 5th schedule field, quiet times.
+      case 'HELLO': return this.reply(`HELLO|2|${this.name}|${this.schedule.length}|${this.notes.length}|${FakeTransport.payload}`);
+      case 'QUIET_START': this.quiet = []; return;
+      case 'Q': this.quiet = [...(this.quiet || []), args.join('|')]; return;
+      case 'QUIET_END': return Number(args[0]) === (this.quiet || []).length ? this.reply(`QUIET_RECEIVED|${this.quiet.length}`) : this.reply(`ERR|QUIET|${(this.quiet || []).length}`);
       case 'TIME': return this.reply('OK|TIME');
       case 'SCHEDULE_START': this.receiving = true; this.buffer = []; return;
       case 'SCHEDULE_END': {

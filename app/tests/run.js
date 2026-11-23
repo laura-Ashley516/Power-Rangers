@@ -11,6 +11,8 @@ import { CLIENT_SENTENCES } from './sentences-client.js';
 import { FakeTransport, DeviceLink, splitMessage } from '../js/device.js';
 import { wavInfo, encodeImaAdpcmWav, toPlayableWav } from '../js/voice/wav.js';
 import { readFileSync } from 'node:fs';
+import { setLang } from '../js/i18n.js';
+setLang('en'); // the checks read the English messages
 
 let pass = 0, fail = 0;
 const check = (name, ok, detail = '') => {
@@ -114,13 +116,13 @@ const oldSave = { ...JSON.parse(JSON.stringify(st)), version: 4, appVersion: '0.
 delete oldSave.series; delete oldSave.weeks;
 store['pwr-planner'] = JSON.stringify(oldSave);
 const loadedSave = load();
-check('an update keeps a safety copy of the save exactly as it was', safetyCopies().length === 1 && /before the update/.test(safetyCopies()[0].reason) && safetyCopies()[0].data === JSON.stringify(oldSave));
+check('an update keeps a safety copy of the save exactly as it was', safetyCopies().length === 1 && /before an update/.test(safetyCopies()[0].reason) && safetyCopies()[0].data === JSON.stringify(oldSave));
 check('the save opens normally after the update', loadedSave.version === 5 && loadedSave.appVersion === APP_VERSION && !!findItem(loadedSave.schedule, 's1'));
 save(loadedSave);
 load();
 check('no second "before update" copy once updated', safetyCopies().length === 1);
 check('one daily copy per day only', keepSafetyCopy(loadedSave, 'daily copy', { daily: true }) && !keepSafetyCopy(loadedSave, 'daily copy', { daily: true }));
-const restoredCopy = readSafetyCopy(safetyCopies().find((c) => /before the update/.test(c.reason)).id);
+const restoredCopy = readSafetyCopy(safetyCopies().find((c) => /before an update/.test(c.reason)).id);
 check('a safety copy can be restored (brought up to date)', restoredCopy && restoredCopy.version === 5 && !!findItem(restoredCopy.schedule, 's1'));
 store['pwr-planner'] = '{ not readable';
 const unreadableSave = load();
@@ -212,7 +214,10 @@ check('voice: without "every week", a move stays this week only', say('Move chur
 check('voice: that move can be undone', findItem(applyChange(moved.state, moved.undo).state.schedule, medId)?.period === 'Afternoon');
 
 const parts = splitChanges({ id: 'meal', name: 'Meal prep (part)', energy: 'green' }, [{ name: 'meat' }, { name: 'vegetables' }, { name: 'rice' }], 'Saturday', 'Afternoon');
-check('split: 3 parts on 3 days in a row', parts.map((c) => c.day).join() === 'Saturday,Sunday,Monday' && parts[2].item.name === 'Meal prep 3/3: rice');
+check('split: parts on the days in a row, the ones after the last day go to "Later this week"', parts.map((c) => c.day || c.type).join() === 'Saturday,Sunday,addLeftover' && parts[2].item.name === 'Meal prep 3/3: rice');
+const sundayWeek = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+check('split: in a week that starts on Sunday, Thursday + 3 parts every second day', splitChanges({ id: 'm', name: 'Meal' }, [{ name: 'a' }, { name: 'b' }, { name: 'c' }], 'Wednesday', 'Morning', 2, sundayWeek).map((c) => c.day || c.type).join() === 'Wednesday,Friday,addLeftover');
+check('split: all on the same day', splitChanges({ id: 'm', name: 'Meal' }, [{ name: 'a' }, { name: 'b' }], 'Monday', 'Evening', 0).every((c) => c.day === 'Monday'));
 
 // ---------- Appointment card and quiet times (v0.8) ----------
 console.log('Appointment card and quiet times');
@@ -248,7 +253,8 @@ const weekJs = readFileSync(new URL('../js/ui-week.js', import.meta.url), 'utf8'
 const box = html.match(/<aside[^>]*id="palette"[^>]*>/)?.[0] || '';
 check('the "My activities" box is in the week screen', !!box && html.includes('id="paletteTiles"'));
 check('the box is always visible (not hidden)', !!box && !/class="[^"]*\bhidden\b/.test(box));
-check('the week screen opens first', /<section id="weeklyView" class="view"/.test(html) && /<section id="todayView" class="view hidden"/.test(html));
+check('the week screen opens first', /<section id="weeklyView" class="view"/.test(html) && !html.includes('id="todayView"'));
+check('One day is at the end of the week screen (no separate Today screen)', html.indexOf('id="dayPanel"') > html.indexOf('id="weekGrid"') && html.indexOf('id="dayPanel"') < html.indexOf('id="activitiesView"'));
 check('drag code is present (mouse, finger, pen)', mainJs.includes("addEventListener('pointerdown'") && mainJs.includes('function dropOn') && mainJs.includes('startDrag'));
 check('tap-then-tap alternative is present', mainJs.includes('placeInto(ctx.placing.kind') && weekJs.includes('export function startPlacing'));
 const libJs = readFileSync(new URL('../js/ui-library.js', import.meta.url), 'utf8');
@@ -318,7 +324,7 @@ const transport = new FakeTransport();
 await transport.connect();
 const link = new DeviceLink(transport);
 const hi = await link.hello();
-check('HELLO answers protocol v1', hi.version === 1, JSON.stringify(hi));
+check('HELLO answers protocol v2 (clock times, quiet times)', hi.version === 2, JSON.stringify(hi));
 await link.setTime();
 await link.sendSchedule(lines);
 check('schedule is stored on the device', JSON.parse(mem['pwr-demo-device']).schedule.length === lines.length);
@@ -333,10 +339,62 @@ check('the note arrives complete and checked', got.length === wav.length && Buff
 await link.deleteNote(notes[0].id);
 check('the note is deleted only after the check', (await link.listNotes()).length === 0);
 
+// ---------- v0.10: photo, reminders, French, pictures (client feedback, Nov 2026) ----------
+console.log('Photo, reminders, French');
+{
+  const { parsePhotoText } = await import('../js/photo-parse.js');
+  const { remindersFor } = await import('../js/rules.js');
+  const { iconFor } = await import('../js/icons.js');
+  const { t, setLang: lang } = await import('../js/i18n.js');
+  const wk = fresh();
+  const photo = parsePhotoText('MONDAY\n10:30 Physio\nAfternoon: haircut\nMardi soir cours de musique\nJeudi 14h dentiste\nAdd vacuum on Friday morning', { library: wk.library, schedule: wk.schedule, now: NOW });
+  const adds = photo.filter((r) => r.ok && r.change.type === 'add').map((r) => [r.change.day, r.change.period, r.change.item.name, r.change.item.time || ''].join(' '));
+  check('photo: a day header applies to the next lines, with the clock time', adds.includes('Monday Morning Physiotherapy 10:30'));
+  check('photo: "Afternoon:" sets the time of day, a new activity is created', adds.includes('Monday Afternoon Haircut '));
+  check('photo: French day, time of day and activity', adds.includes('Tuesday Evening Music lesson '));
+  check('photo: French "14h" is 14:00 in the afternoon', adds.includes('Thursday Afternoon Medical appointment 14:00'));
+  check('photo: a sentence goes to the voice parser', adds.includes('Friday Morning Vacuum '));
+  check('photo: a line without any day is not used', parsePhotoText('10:30 Physio', { library: wk.library, schedule: wk.schedule, now: NOW }).every((r) => !r.ok));
+
+  // French voice commands
+  const fr = (text) => parse(text, { library: wk.library, schedule: wk.schedule, now: NOW, newId: () => 'f' });
+  const add = fr('Ajoute la physio vendredi à 10h30')[0];
+  check('voice (French): add with a day and a clock time', add.ok && add.change.day === 'Friday' && add.change.item.time === '10:30' && add.change.period === 'Morning');
+  const mv = fr('Déplace la marche de lundi à mercredi matin')[0];
+  check('voice (French): move from one day to another', mv.ok && mv.change.type === 'move' && mv.change.toDay === 'Wednesday' && mv.change.toPeriod === 'Morning');
+  const rm = fr('Annule l\'aspirateur lundi')[0];
+  check('voice (French): cancel', rm.ok && rm.change.type === 'remove');
+  check('voice (French): "demain" is tomorrow', fr('Ajoute la vaisselle demain après-midi')[0].change?.day === 'Thursday');
+  check('voice (English): "at 2 pm" keeps the clock time', parse('Add physio on Friday at 2 pm', { library: wk.library, schedule: wk.schedule, now: NOW })[0].change?.item.time === '14:00');
+
+  // In-app reminders follow the device rule: a block reminder 60 min before, and one per timed activity.
+  const rs = { ...emptySchedule() };
+  rs.Monday = { Morning: [{ id: 'a', name: 'Walk', energy: 'green' }, { id: 'b', name: 'Physio', energy: 'yellow', time: '10:30' }], Afternoon: [{ id: 'c', name: 'Rest', energy: 'rest' }], Evening: [{ id: 'd', name: 'Music', energy: 'yellow', reminder: false }] };
+  const rem = remindersFor ? remindersFor(rs, 'Monday', [], 60) : [];
+  check('reminders: the morning block 60 min before 9:00, and Physio 60 min before 10:30', rem.length === 2 && rem[0].at === 8 * 60 && rem[0].items.length === 1 && rem[1].at === 9 * 60 + 30);
+  check('reminders: rest and "no reminder" activities are left out', !rem.some((r) => r.items.some((a) => a.id === 'c' || a.id === 'd')));
+
+  // Pictures and French texts
+  check('pictures: chosen from the name, whole words only', iconFor({ name: 'Change bed and towels' }) === '🛏️' && iconFor({ name: 'Hang laundry' }) === '🧺' && iconFor({ name: 'Rendez-vous médical' }) === '🩺');
+  check('pictures: her own choice wins', iconFor({ name: 'Walk', icon: '🐕' }) === '🐕');
+  lang('fr');
+  check('French: a message with a name and a place', t('{name} added to {where}.', { name: 'Physio', where: 'lundi matin' }) === 'Physio ajouté lundi matin.');
+  check('French: the energy rules speak French', checkDay({ ...emptySchedule(), Monday: { Morning: [{ energy: 'red' }, { energy: 'red' }], Afternoon: [], Evening: [] } }, 'Monday').warnings[0].startsWith('Plus d’une'));
+  lang('en');
+  const missing = (await import('node:child_process')).execFileSync('node', [new URL('../../tools/i18n-check.mjs', import.meta.url).pathname, '--json']).toString();
+  check('French: every English text has a French text', JSON.parse(missing).length === 0, missing.slice(0, 200));
+}
+
 // ---------- Voice-note compression (IMA ADPCM, docs/protocol.md) ----------
 {
   const fake2 = new FakeTransport(); await fake2.connect(); const link2 = new DeviceLink(fake2); await link2.hello();
+  check('quiet times are sent to a v2 device and confirmed', (await link2.sendQuiet(['Sunday|Morning', 'Tuesday|Evening'])) === true);
+  link2.version = 1; // a v1 device (first firmware) never receives them
   check('quiet times are not sent to a v1 device (no unknown commands)', (await link2.sendQuiet(['Sunday|Morning'])) === false);
+  const timed = scheduleToLines({ ...emptySchedule(), Monday: { Morning: [{ name: 'Walk', energy: 'green' }, { name: 'Physio', energy: 'yellow', time: '10:30' }], Afternoon: [], Evening: [] } }, { times: true });
+  check('v2 lines: clock time as a 5th field, timed activities first', timed.join() === 'Monday|Morning|Physio|yellow|10:30,Monday|Morning|Walk|green');
+  check('v1 lines never carry a time', scheduleToLines({ ...emptySchedule(), Monday: { Morning: [{ name: 'Physio', energy: 'yellow', time: '10:30' }], Afternoon: [], Evening: [] } }).join() === 'Monday|Morning|Physio|yellow');
+  check('a backup line with a time comes back with its time', linesToSchedule(['Monday|Morning|Physio|yellow|10:30'], []).schedule.Monday.Morning[0].time === '10:30');
 }
 console.log('Compression');
 const pcm = readFileSync(new URL('./audio/move-walk.wav', import.meta.url));

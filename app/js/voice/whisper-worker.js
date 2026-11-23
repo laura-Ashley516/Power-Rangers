@@ -30,7 +30,8 @@ self.onmessage = async ({ data }) => {
     if (data.type === 'load') await load(data.model);
     if (data.type === 'transcribe') {
       const run = await load(data.model);
-      const out = await run(data.audio, { chunk_length_s: 30 });
+      // French needs the multilingual model (no ".en"), told which language to expect.
+      const out = await run(data.audio, { chunk_length_s: 30, ...(data.language ? { language: data.language, task: 'transcribe' } : {}) });
       self.postMessage({ type: 'result', id: data.id, text: String(out.text || '').trim() });
     }
   } catch (e) {

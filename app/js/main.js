@@ -5,12 +5,11 @@
 
 import { APP_VERSION, PERIODS } from './config.js';
 import { ctx, commit, change, undo, onRender } from './context.js';
-import { load, save, fresh, requestPersistence, exportBackup, importBackup, keepSafetyCopy, safetyCopies, readSafetyCopy } from './store.js';
-import { $, toast, currentPeriodIndex, orderedDays } from './ui-kit.js';
+import { load, save, fresh, requestPersistence, exportBackup, importBackup, keepSafetyCopy, safetyCopies, readSafetyCopy, deviceSignature } from './store.js';
+import { $, toast, currentPeriodIndex } from './ui-kit.js';
 import { openWeek } from './rules.js';
-import { renderWeek, renderAlerts, changeWeek, weekKey, openBalance, keepDay, openSplit, openAddLeftover, startPlacing, cancelPlacing, placeInto, openWeekMenu } from './ui-week.js';
-import { renderDaily } from './ui-daily.js';
-import { renderToday, addRest } from './ui-today.js';
+import { renderWeek, changeWeek, weekKey, openBalance, keepDay, openSplit, openAddLeftover, startPlacing, cancelPlacing, placeInto, openWeekMenu, toggleSuggestions, scheduleFor } from './ui-week.js';
+import { renderDaily, addRest, showDay, shownDay, toggleGroup } from './ui-daily.js';
 import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, openCardMenu, handleLibraryClick, renderQuietSettings, toggleQuiet } from './ui-library.js';
 import { printWeek, printDay, printGuide, renderPrintArea } from './print.js';
 import { renderGuide } from './guide.js';
@@ -20,8 +19,15 @@ import { openVoiceModal } from './voice/recorder.js';
 import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCount } from './voice/inbox.js';
 import { preload, onStatus } from './voice/transcribe.js';
 import { onNotesChanged } from './voice/notes.js';
+import { t, tDay, dayInText, setLang, translatePage, fmtDate, fmtTime, tPeriod } from './i18n.js';
+import { startReminders, checkReminders, redrawReminder } from './reminders.js';
+import { openPhoto } from './photo.js';
+import { maybeStartTutorial, openTutorial } from './tutorial.js';
+import { isDemo, setDemo, resetDemo } from './store.js';
 
 ctx.state = load();
+setLang(ctx.state.settings.lang);
+translatePage();
 
 // Always open on the real current week. The week saved on screen is kept under its own date (rules.openWeek):
 // before v0.9 it was the week of the last visit (weekOf). A week never opened starts with the weekly activities.
@@ -38,7 +44,7 @@ function toThisWeek(state) {
   ctx.state = state;
   save(ctx.state);
   keepSafetyCopy(ctx.state, 'daily copy', { daily: true }); // one a day, before today's changes
-  if (newWeek && Object.keys(state.series || {}).length) setTimeout(() => toast('A new week: your weekly activities are in their usual places.', 5000), 800);
+  if (newWeek && Object.keys(state.series || {}).length) setTimeout(() => toast(t('A new week: your weekly activities are in their usual places.'), 5000), 800);
 }
 
 // ---------- drawing ----------
@@ -63,23 +69,35 @@ function applySettings() {
   document.body.classList.toggle('spacious', s.spacing === 'spacious');
   document.body.classList.toggle('high-contrast', s.contrast);
   document.querySelector('meta[name="theme-color"]')?.setAttribute('content', s.theme === 'dim' ? '#1c1d18' : '#4a5530');
-  // Day pickers follow the client's week order.
-  const order = orderedDays(s.weekStart);
-  ['dailySelect', 'dailySelect2'].forEach((id) => {
-    const sel = $(id);
-    if ([...sel.options].map((o) => o.value).join() !== order.join()) { const v = sel.value; sel.innerHTML = order.map((d) => `<option>${d}</option>`).join(''); sel.value = v; }
-  });
+  $('langSelect').value = s.lang;
+  $('langBtn').textContent = s.lang === 'fr' ? 'English' : 'Français';
+  $('langBtn').setAttribute('lang', s.lang === 'fr' ? 'en' : 'fr');
+  $('appRemindToggle').setAttribute('aria-checked', s.appReminders !== false);
+  $('demoModeToggle').setAttribute('aria-checked', isDemo());
+  $('demoBanner').classList.toggle('hidden', !isDemo());
+  renderSaveLine();
 }
+
+// "Saved on this iPad · 10:42 · Device: up to date" (client: she was not sure her changes were kept or sent).
+function renderSaveLine() {
+  const el = $('offlineBadge');
+  if (!el) return;
+  const s = ctx.state;
+  const saved = ctx.saveFailed ? t('Could not save') : t('Saved on this iPad · {time}', { time: fmtTime(new Date(s.updatedAt || Date.now())) });
+  const dev = s.deviceSync?.at ? (s.deviceSync.sig === deviceSignature({ schedule: scheduleFor(0) }) ? t('Device: up to date') : t('Device: not sent yet')) : '';
+  el.textContent = [saved, dev].filter(Boolean).join(' · ');
+  el.classList.toggle('warn', !!ctx.saveFailed || (dev && s.deviceSync.sig !== deviceSignature({ schedule: scheduleFor(0) })));
+}
+
 
 function updateClock() {
   const now = new Date();
-  $('topDate').textContent = now.toLocaleDateString(undefined, { weekday: 'long', month: 'long', day: 'numeric' });
+  $('topDate').textContent = fmtDate(now, { weekday: 'long', month: 'long', day: 'numeric' });
   const pi = currentPeriodIndex(now);
-  $('topPeriod').textContent = pi >= 0 && pi <= 2 ? PERIODS[pi] : '';
+  $('topPeriod').textContent = pi >= 0 && pi <= 2 ? tPeriod(PERIODS[pi]) : '';
 }
 
 onRender(applySettings);
-onRender(renderToday);
 onRender(renderWeek);
 onRender(renderDaily);
 onRender(renderLibrary);
@@ -89,13 +107,15 @@ onRender(renderPrintArea);
 onRender(() => { if (!$('voiceView').classList.contains('hidden')) renderVoiceView(); });
 
 export function showView(name) {
+  // "One day" is the end of the week page (client feedback, Nov 2026): it opens the week and goes down to it.
+  const toDay = name === 'daily';
+  if (toDay) name = 'weekly';
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   $(name + 'View').classList.remove('hidden');
-  document.querySelectorAll('.navbtn').forEach((b) => b.classList.toggle('active', b.dataset.view === name));
+  document.querySelectorAll('.navbtn').forEach((b) => b.classList.toggle('active', b.dataset.view === (toDay ? 'daily' : name)));
   if (name !== 'weekly' && ctx.placing) cancelPlacing();
-  if (name === 'today') renderToday();
-  if (name === 'daily') renderDaily();
-  if (name === 'weekly') renderWeek();
+  if (name === 'weekly') { renderWeek(); renderDaily(); }
+  if (toDay) { $('dayPanel').scrollIntoView({ block: 'start' }); return; }
   if (name === 'voice') renderVoiceView();
   if (name === 'device') { renderDemoPanel(); renderConnection(); }
   if (name === 'settings') renderSafety();
@@ -114,37 +134,58 @@ $('undoBtn').onclick = undo;
 $('voiceBtn').onclick = openVoiceModal;
 $('voiceRecordBtn2').onclick = openVoiceModal;
 $('processNotesBtn').onclick = () => processAll().then(renderVoiceView);
-$('dailySelect').addEventListener('change', (e) => { $('dailySelect2').value = e.target.value; showView('daily'); });
-$('dailySelect2').addEventListener('change', () => { renderDaily(); renderPrintArea(); });
 $('printBtn').addEventListener('click', printWeek);
-$('dailyPrint').addEventListener('click', () => printDay());
+$('dailyPrint').addEventListener('click', () => printDay(shownDay()));
+$('suggestBtn').onclick = () => toggleSuggestions();
+$('photoBtn').onclick = openPhoto;
+const setLanguage = (lang) => {
+  setLang(lang);
+  translatePage();
+  renderGuide();
+  setting('lang', lang);
+  updateClock();
+  updateCount();
+  redrawReminder();
+  renderSafety();
+};
+$('langBtn').onclick = () => setLanguage(ctx.state.settings.lang === 'fr' ? 'en' : 'fr');
+$('langSelect').onchange = (e) => setLanguage(e.target.value);
+$('tutorialBtn').onclick = openTutorial;
+$('helpTutorialBtn').onclick = openTutorial;
+$('appRemindToggle').onclick = () => { setting('appReminders', ctx.state.settings.appReminders === false); checkReminders(); };
+$('demoModeToggle').onclick = () => {
+  if (!isDemo() && !confirm(t('Turn on demo mode? Visitors see an example week. Your own planner is kept apart, unchanged, and comes back when demo mode is off.'))) return;
+  setDemo(!isDemo());
+};
+$('demoExit').onclick = () => setDemo(false);
+$('demoReset').onclick = () => { if (confirm(t('Start the demo again with the example week?'))) resetDemo(); };
 $('printGuideBtn').addEventListener('click', printGuide);
 $('openAddActivity').onclick = () => activityForm();
 $('weeklyAddActivity').onclick = () => createAndScheduleActivity();
-$('openSplit').onclick = openSplit;
+$('openSplit').onclick = () => openSplit();
 $('trayAdd').onclick = openAddLeftover;
 $('weekMoreBtn').onclick = openWeekMenu;
-$('fontSelect').onchange = (e) => { setting('font', e.target.value); toast('Font saved.'); };
-$('spacingSelect').onchange = (e) => { setting('spacing', e.target.value); toast('Spacing saved.'); };
+$('fontSelect').onchange = (e) => { setting('font', e.target.value); toast(t('Font saved.')); };
+$('spacingSelect').onchange = (e) => { setting('spacing', e.target.value); toast(t('Spacing saved.')); };
 
-$('themeSelect').onchange = (e) => { setting('theme', e.target.value); toast('Colours saved.'); };
+$('themeSelect').onchange = (e) => { setting('theme', e.target.value); toast(t('Colours saved.')); };
 $('weekStartSelect').onchange = (e) => {
   setting('weekStart', e.target.value);
   commit({ ...ctx.state, shownWeek: weekKey(ctx.weekOffset) }); // the week on screen keeps its activities under its new first day
-  toast(`The week now starts on ${e.target.value}.`);
+  toast(t('The week now starts on {day}.', { day: dayInText(e.target.value) }));
 };
 $('contrastToggle').onclick = () => setting('contrast', !ctx.state.settings.contrast);
 document.addEventListener('change', (e) => { const q = e.target.closest?.('[data-quiet]'); if (q) toggleQuiet(q.dataset.quiet, q.checked); });
 document.querySelectorAll('input[name=textSize]').forEach((r) => (r.onchange = () => { setting('size', r.value); }));
 $('alertsToggle').onclick = () => setting('alerts', !ctx.state.settings.alerts);
-$('smsToggle').onclick = () => { setting('sms', !ctx.state.settings.sms); toast(ctx.state.settings.sms ? 'SMS preference on (an SMS service is still needed).' : 'SMS preference off.'); };
-$('demoToggle').onclick = () => { disconnect(); setting('demoDevice', !ctx.state.settings.demoDevice); renderDemoPanel(); renderConnection(); toast(ctx.state.settings.demoDevice ? 'Demo device on.' : 'Demo device off.'); };
-$('reminderLead').onchange = (e) => { setting('lead', Number(e.target.value)); toast('Reminder time saved.'); };
-$('modelSelect').onchange = (e) => { setting('speechModel', e.target.value); toast('Speech model saved. It downloads the next time it is needed.'); };
+$('smsToggle').onclick = () => { setting('sms', !ctx.state.settings.sms); toast(ctx.state.settings.sms ? t('SMS preference on (an SMS service is still needed).') : t('SMS preference off.')); };
+$('demoToggle').onclick = () => { disconnect(); setting('demoDevice', !ctx.state.settings.demoDevice); renderDemoPanel(); renderConnection(); toast(ctx.state.settings.demoDevice ? t('Demo device on.') : t('Demo device off.')); };
+$('reminderLead').onchange = (e) => { setting('lead', Number(e.target.value)); toast(t('Reminder time saved.')); };
+$('modelSelect').onchange = (e) => { setting('speechModel', e.target.value); toast(t('Speech model saved. It downloads the next time it is needed.')); };
 $('preloadModelBtn').onclick = () => preload(ctx.state.settings.speechModel);
-$('vibrateBtn').onclick = () => { if ('vibrate' in navigator) { navigator.vibrate(180); toast('Vibration test requested.'); } else toast('Vibration is not supported by this browser.'); };
+$('vibrateBtn').onclick = () => { if ('vibrate' in navigator) { navigator.vibrate(180); toast(t('Vibration test requested.')); } else toast(t('Vibration is not supported by this browser.')); };
 $('resetBtn').onclick = () => {
-  if (!confirm('Start again with the example week? Your current week and activities are replaced. (A safety copy is kept.)')) return;
+  if (!confirm(t('Start again with the example week? Your current week and activities are replaced. (A safety copy is kept.)'))) return;
   keepSafetyCopy(ctx.state, 'before a reset');
   sessionStorage.clear();
   const keep = ctx.state.settings;
@@ -153,45 +194,45 @@ $('resetBtn').onclick = () => {
   state.settings = { ...state.settings, ...keep };
   state.shownWeek = weekKey(0);
   commit(state);
-  toast('Planner reset to the example week.');
+  toast(t('Planner reset to the example week.'));
 };
 // Settings → Keep my schedule safe: the safety copies (store.js) and the Home Screen advice.
 function renderSafety() {
   const copies = safetyCopies();
-  const when = (t) => new Date(t).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
-  $('copyList').innerHTML = copies.length ? copies.map((c) => `<div class="copy-row"><span>${when(c.at)} · ${c.reason}</span><button class="small" data-restore-copy="${c.id}">Restore</button></div>`).join('')
-    : '<p class="muted">The first copy is made today.</p>';
+  const when = (at) => `${fmtDate(new Date(at), { weekday: 'short', month: 'short', day: 'numeric' })} ${fmtTime(new Date(at))}`;
+  $('copyList').innerHTML = copies.length ? copies.map((c) => `<div class="copy-row"><span>${when(c.at)} · ${t(c.reason)}</span><button class="small" data-restore-copy="${c.id}">${t('Restore')}</button></div>`).join('')
+    : `<p class="muted">${t('The first copy is made today.')}</p>`;
   // On iPad a Home Screen app has its own storage, separate from Safari: moving there needs a backup file,
   // so this is advice to follow with a helper, never a pop-up (her week would look empty in the new icon).
   const ios = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
   const standalone = navigator.standalone === true || window.matchMedia?.('(display-mode: standalone)').matches;
   $('homeScreenRow').classList.toggle('hidden', !ios);
   $('homeScreenText').textContent = standalone
-    ? 'The planner is open from its Home Screen icon: the iPad keeps your week safely. Always open it from this icon.'
-    : 'Safari can clear a website after a long time without use. To keep your week safe, with a helper: 1. Save a backup (above). 2. Tap Share, then “Add to Home Screen”. 3. Open the new icon and Load the backup. Then always use the icon.';
+    ? t('The planner is open from its Home Screen icon: the iPad keeps your week safely. Always open it from this icon.')
+    : t('Safari can clear a website after a long time without use. To keep your week safe, with a helper: 1. Save a backup (above). 2. Tap Share, then “Add to Home Screen”. 3. Open the new icon and Load the backup. Then always use the icon.');
 }
 
 $('copyList').addEventListener('click', (e) => {
   const b = e.target.closest('[data-restore-copy]');
   if (!b) return;
   const state = readSafetyCopy(b.dataset.restoreCopy);
-  if (!state) { toast('This copy could not be opened.'); return; }
-  if (!confirm('Go back to this copy? What you changed since then is replaced. A copy of the planner as it is now is kept, so you can come back to it.')) return;
+  if (!state) { toast(t('This copy could not be opened.')); return; }
+  if (!confirm(t('Go back to this copy? What you changed since then is replaced. A copy of the planner as it is now is kept, so you can come back to it.'))) return;
   keepSafetyCopy(ctx.state, 'before a restore');
   ctx.weekOffset = 0; ctx.undoStack = []; ctx.placing = null;
   commit(toThisWeek(state).state);
   renderSafety();
-  toast('Planner restored from the safety copy.');
+  toast(t('Planner restored from the safety copy.'));
 });
 
-$('exportBtn').onclick = () => { exportBackup(ctx.state); toast('Backup file created.'); };
+$('exportBtn').onclick = () => { exportBackup(ctx.state); toast(t('Backup file created.')); };
 $('importInput').onchange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
   try {
     const state = await importBackup(file);
-    if (confirm('Replace the planner with this backup?')) { keepSafetyCopy(ctx.state, 'before loading a backup'); ctx.weekOffset = 0; ctx.undoStack = []; commit(toThisWeek(state).state); toast('Backup loaded.'); }
-  } catch (err) { toast(err.message); }
+    if (confirm(t('Replace the planner with this backup?'))) { keepSafetyCopy(ctx.state, 'before loading a backup'); ctx.weekOffset = 0; ctx.undoStack = []; commit(toThisWeek(state).state); toast(t('Backup loaded.')); }
+  } catch (err) { toast(t(err.message)); }
   e.target.value = '';
 };
 $('connectBtn').onclick = connect;
@@ -201,9 +242,9 @@ wireConnection();
 
 onStatus((s) => {
   const el = $('modelStatus');
-  if (s.state === 'downloading') el.textContent = `Downloading… ${Math.round((s.progress || 0) * 100)} %`;
-  if (s.state === 'ready') el.textContent = 'Ready. Works without internet from now on.';
-  if (s.state === 'error') el.textContent = 'Could not load: ' + s.error;
+  if (s.state === 'downloading') el.textContent = t('Downloading… {p} %', { p: Math.round((s.progress || 0) * 100) });
+  if (s.state === 'ready') el.textContent = t('Ready. Works without internet from now on.');
+  if (s.state === 'error') el.textContent = t('Could not load: {error}', { error: s.error });
 });
 onNotesChanged(updateCount);
 
@@ -229,21 +270,20 @@ document.addEventListener('click', (e) => {
   if (apBtn) { openAppointmentCard(apBtn.dataset.appointment); return; }
   const rest = t.closest('[data-add-rest]');
   if (rest) { addRest(rest.dataset.addRest); return; }
-  const pt = t.closest('[data-print-tomorrow]');
-  if (pt) { printDay(pt.dataset.printTomorrow); return; }
+  const grp = t.closest('[data-day-group]');
+  if (grp) { toggleGroup(grp.dataset.dayGroup); return; }
   const od = t.closest('[data-open-day]');
-  if (od) { $('dailySelect2').value = od.dataset.openDay; showView('daily'); return; }
+  if (od) { showDay(od.dataset.openDay); if (!od.closest('#dayPanel')) showView('daily'); return; }
+  if (t.closest('[data-suggest-hide]')) { toggleSuggestions(false); return; }
   if (t.closest('[data-open-balance]')) { openBalance(); return; }
   const keep = t.closest('[data-keep-day]');
   if (keep) { keepDay(keep.dataset.keepDay); return; }
-  const dismiss = t.closest('[data-alert-dismiss]');
-  if (dismiss) { sessionStorage.setItem('dismiss-' + dismiss.dataset.alertDismiss, '1'); renderAlerts(); return; }
   if (handleLibraryClick(e)) return;
   if (handleVoiceClick(e, showView)) return;
 
   const card = t.closest('.activity-card');
   const slot = t.closest('.slot');
-  const inBoard = t.closest('#weeklyView, #dailyView');
+  const inBoard = t.closest('#weeklyView');
   // Tap-to-place: an activity is chosen, the next tap on a block puts it there.
   if (ctx.placing && slot && slot.dataset.day) {
     placeInto(ctx.placing.kind, ctx.placing.id, slot.dataset.day, slot.dataset.period);
@@ -343,21 +383,22 @@ function endDrag(e, cancelled) {
 document.addEventListener('pointerup', (e) => endDrag(e, false));
 document.addEventListener('pointercancel', (e) => endDrag(e, true));
 
-window.addEventListener('online', () => ($('offlineBadge').textContent = 'Saved on this iPad'));
-window.addEventListener('offline', () => ($('offlineBadge').textContent = 'Offline · saved on this iPad'));
+
 
 // ---------- start ----------
 
-$('appVersion').textContent = `Version ${APP_VERSION}`;
+$('appVersion').textContent = `${t('Version')} ${APP_VERSION}`;
 renderGuide();
 commit(ctx.state);
 updateClock();
-setInterval(() => { updateClock(); if (!$('todayView').classList.contains('hidden')) renderToday(); }, 60000);
+setInterval(() => { updateClock(); renderDaily(); }, 60000); // "Now" moves on through the day
+startReminders();
+maybeStartTutorial();
 updateCount();
 requestPersistence().then((r) => {
-  $('persistStatus').textContent = r === 'granted' ? 'Kept permanently: the browser will not clear it on its own.'
-    : r === 'not granted' ? 'The browser may clear it after a long time without use. Keep the device synced and save a backup now and then.'
-      : 'This browser does not say. Keep the device synced and save a backup now and then.';
+  $('persistStatus').textContent = r === 'granted' ? t('Kept permanently: the browser will not clear it on its own.')
+    : r === 'not granted' ? t('The browser may clear it after a long time without use. Keep the device synced and save a backup now and then.')
+      : t('This browser does not say. Keep the device synced and save a backup now and then.');
 });
 
 // Offline-first: keep the app's files on this device. Add ?nosw to the address to switch it off while developing.
@@ -388,7 +429,7 @@ if ('serviceWorker' in navigator) {
     });
     if (sessionStorage.getItem('pwr-updated')) {
       sessionStorage.removeItem('pwr-updated');
-      setTimeout(() => toast(`The planner was updated (version ${APP_VERSION}).`), 600);
+      setTimeout(() => toast(t('The planner was updated (version {v}).', { v: APP_VERSION })), 600);
     }
     navigator.serviceWorker.register('./sw.js').then((reg) => {
       applyUpdate(reg);
@@ -403,11 +444,11 @@ if ('serviceWorker' in navigator) {
         reg.update().catch(() => { /* offline */ });
       });
       $('checkUpdateBtn').onclick = async () => {
-        $('updateStatus').textContent = 'Checking…';
+        $('updateStatus').textContent = t('Checking…');
         try { await reg.update(); } catch (e) { /* offline */ }
         setTimeout(() => {
-          if (reg.waiting) { $('updateStatus').textContent = 'Updating…'; applyUpdate(reg, true); }
-          else $('updateStatus').textContent = reg.installing ? 'A new version is downloading; it will be used the next time you open the planner.' : `You have the latest version (${APP_VERSION}).`;
+          if (reg.waiting) { $('updateStatus').textContent = t('Updating…'); applyUpdate(reg, true); }
+          else $('updateStatus').textContent = reg.installing ? t('A new version is downloading; it will be used the next time you open the planner.') : t('You have the latest version ({v}).', { v: APP_VERSION });
         }, 1500);
       };
     }).catch(() => { /* offline mode unavailable in this browser */ });

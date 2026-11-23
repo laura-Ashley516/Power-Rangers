@@ -74,11 +74,15 @@ bool reminderShown = false;      // reminder view on screen (NEXT hides it)
 int  reminderBuzzes = 0;         // how many times we buzzed for it
 uint32_t lastBuzzMs = 0;
 long remindedOnDay[NUM_PERIODS] = {-1, -1, -1};   // day number of the last reminder per block
+long remindedActivity[MAX_ACTIVITIES];               // v2: day number of the last reminder per timed activity
+bool pendingBuzz = false;                            // v2: a buzz held back by a quiet time
 
 // ---------------------------------------------------------------------
 //  Called by the Bluetooth code (see pwr_app.h)
 // ---------------------------------------------------------------------
 void appScheduleChanged() {
+  // A new list: its timed activities may be reminded again (indexes changed).
+  for (int i = 0; i < MAX_ACTIVITIES; i++) remindedActivity[i] = -1;
   if (clockIsSet() && reminderPeriod < 0) shownDay = clockTodayIndex();
   messageShowing = false;
   screenDirty = true;
@@ -101,6 +105,18 @@ void showMessage(const char *line1, const char *line2) {
   messageStartMs = millis();
 }
 
+// v2 quiet times: no vibration during a quiet block (church, music lesson…). The reminder stays on the
+// screen, and the buzz is held back until the block ends (docs/protocol.md, "Quiet times").
+bool quietNow() {
+  if (!clockIsSet()) return false;
+  return isQuiet(clockTodayIndex(), periodAtMinutes(clockMinutesOfDay()));
+}
+void buzzUnlessQuiet() {
+  if (quietNow()) { pendingBuzz = true; Serial.println("Quiet time: buzz held back."); return; }
+  pendingBuzz = false;
+  vibrationBuzz();
+}
+
 void startReminder(int day, int period) {
   Serial.printf("Reminder: %s %s\n", dayName(day), periodName(period));
   reminderPeriod = period;
@@ -111,7 +127,7 @@ void startReminder(int day, int period) {
   shownDay = day;
   messageShowing = false;
   screenDirty = true;
-  vibrationBuzz();
+  buzzUnlessQuiet();
 }
 
 void stopReminder() {
@@ -230,14 +246,33 @@ void updateReminders() {
   long dayNumber = clockDayNumber();
 
   // Start a reminder when we enter the "lead" window before a block.
+  // v2: only for the activities WITHOUT a clock time; the timed ones get their own reminder below.
   for (int p = 0; p < NUM_PERIODS; p++) {
     int start = periodStartMinutes(p);
     int remindAt = start - REMINDER_LEAD_MIN;
     bool inWindow = (minutes >= remindAt && minutes < start);
-    if (inWindow && remindedOnDay[p] != dayNumber && countActivities(today, p) > 0) {
+    if (inWindow && remindedOnDay[p] != dayNumber && countUntimed(today, p) > 0) {
       remindedOnDay[p] = dayNumber;   // only once per block per day
       startReminder(today, p);
     }
+  }
+
+  // v2: an activity with a clock time is reminded REMINDER_LEAD_MIN before that time (same rule as the app).
+  for (int i = 0; i < activityCount; i++) {
+    const Activity &a = schedule[i];
+    if (a.day != today || a.timeMin < 0) continue;
+    int remindAt = a.timeMin - REMINDER_LEAD_MIN;
+    if (minutes >= remindAt && minutes < a.timeMin && remindedActivity[i] != dayNumber) {
+      remindedActivity[i] = dayNumber;
+      startReminder(today, a.period);
+    }
+  }
+
+  // A buzz held back by a quiet time: give it as soon as the quiet block is over.
+  if (pendingBuzz && reminderPeriod >= 0 && !quietNow()) {
+    pendingBuzz = false;
+    lastBuzzMs = millis();
+    vibrationBuzz();
   }
 
   // Buzz again every few minutes until DONE (at most REMINDER_MAX_BUZZES).
@@ -249,7 +284,7 @@ void updateReminders() {
     shownDay = reminderDay;
     messageShowing = false;
     screenDirty = true;
-    vibrationBuzz();
+    buzzUnlessQuiet();
   }
 }
 
@@ -305,11 +340,13 @@ void setup() {
   doneButton.begin();
   recordButton.begin();
 
+  for (int i = 0; i < MAX_ACTIVITIES; i++) remindedActivity[i] = -1;
   displayBegin();
   displaySplash("Scheduler", "Starting...");
 
   if (storageBegin()) {
     storageLoadSchedule();
+    storageLoadQuiet();   // v2
   }
   notesWaiting = storageCountNotes();
 

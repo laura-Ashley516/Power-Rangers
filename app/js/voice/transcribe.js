@@ -104,7 +104,7 @@ function normalize(samples) {
 }
 
 // Returns the words heard ('' if the clip is silent).
-export async function transcribe(arrayBuffer, model) {
+export async function transcribe(arrayBuffer, model, language = null) {
   const decoded = await decodeTo16k(arrayBuffer);
   if (isSilent(decoded)) return '';
   const audio = normalize(decoded);
@@ -112,6 +112,6 @@ export async function transcribe(arrayBuffer, model) {
   const id = nextId++;
   const result = new Promise((resolve, reject) => pending.set(id, { resolve, reject }));
   const copy = new Float32Array(audio); // own copy, so it can be handed to the worker
-  getWorker().postMessage({ type: 'transcribe', id, audio: copy, model }, [copy.buffer]);
+  getWorker().postMessage({ type: 'transcribe', id, audio: copy, model, language }, [copy.buffer]);
   return result;
 }

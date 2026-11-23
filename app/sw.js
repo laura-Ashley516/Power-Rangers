@@ -7,14 +7,14 @@
 //
 // Track: B - Data + device
 
-const CACHE = 'pwr-app-0.9.0';
+const CACHE = 'pwr-app-0.10.0';
 const RUNTIME = 'pwr-runtime';
 const APP_FILES = [
   './', './index.html', './manifest.json', './css/styles.css', './css/fonts.css',
   './fonts/atkinson-next-variable.woff2',
   './icons/icon-192.png', './icons/icon-512.png', './icons/apple-touch-icon.png',
   './js/main.js', './js/config.js', './js/context.js', './js/store.js', './js/rules.js', './js/ui-kit.js',
-  './js/ui-week.js', './js/ui-today.js', './js/ui-appointment.js', './js/guide.js', './js/ui-daily.js', './js/ui-library.js', './js/ui-device.js', './js/print.js', './js/device.js', './js/device-wifi.js',
+  './js/ui-week.js', './js/ui-appointment.js', './js/i18n.js', './js/i18n-fr.js', './js/icons.js', './js/reminders.js', './js/photo.js', './js/photo-parse.js', './js/tutorial.js', './js/guide.js', './js/ui-daily.js', './js/ui-library.js', './js/ui-device.js', './js/print.js', './js/device.js', './js/device-wifi.js',
   './js/voice/parser.js', './js/voice/transcribe.js', './js/voice/whisper-worker.js', './js/voice/notes.js',
   './js/voice/recorder.js', './js/voice/inbox.js', './js/voice/wav.js',
 ];

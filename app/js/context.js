@@ -8,6 +8,7 @@
 import { save } from './store.js';
 import { applyChange } from './rules.js';
 import { toast } from './ui-kit.js';
+import { t } from './i18n.js';
 
 export const ctx = {
   state: null,
@@ -26,9 +27,7 @@ export function render() {
 
 export function commit(newState) {
   ctx.state = newState;
-  const ok = save(ctx.state);
-  const badge = document.getElementById('offlineBadge');
-  if (badge) badge.textContent = ok ? 'Saved on this iPad' : 'Could not save';
+  ctx.saveFailed = !save(ctx.state); // shown in the top bar ("Saved on this iPad · 10:42")
   render();
 }
 
@@ -41,15 +40,22 @@ export function change(c, { silent = false, undoable = true } = {}) {
     commit(result.state);
   }
   if (!silent) {
-    const msg = result.ok && result.warnings.length ? `${result.message} Note: ${result.warnings[0]}` : result.message;
-    toast(msg, result.warnings.length || result.notice ? 5000 : 2800, result.ok && undoable && result.undo ? { label: 'Undo', run: undo } : null);
+    const msg = result.ok && result.warnings.length ? `${result.message} ${t('Note:')} ${result.warnings[0]}` : result.message;
+    toast(msg, result.warnings.length || result.notice ? 5000 : 2800, result.ok && undoable && result.undo ? { label: t('Undo'), run: undo } : null);
   }
   return result;
 }
 
+// Changes that do not go through the rules (editing or deleting one of "My activities", a photo import):
+// the whole planner as it was is kept, so Undo can put it back.
+export function snapshotUndo() {
+  ctx.undoStack = [...ctx.undoStack, { type: 'snapshot', state: JSON.parse(JSON.stringify(ctx.state)) }].slice(-20);
+}
+
 export function undo() {
   const last = ctx.undoStack.pop();
-  if (!last) { toast('Nothing to undo.'); return; }
+  if (!last) { toast(t('Nothing to undo.')); return; }
+  if (last.type === 'snapshot') { commit(last.state); toast(t('Undone.')); return; }
   const r = applyChange(ctx.state, { ...last, force: true });
-  if (r.ok) { commit(r.state); toast('Undone.'); } else toast(r.message);
+  if (r.ok) { commit(r.state); toast(t('Undone.')); } else toast(r.message);
 }
