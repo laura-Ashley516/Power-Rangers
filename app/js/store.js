@@ -97,6 +97,7 @@ export const defaultSettings = () => ({
   connection: 'bluetooth', // 'bluetooth' or 'wifi' (docs/wifi-plan.md)
   wifi: { broker: '', username: '', password: '', code: '' },
   weekStart: 'Sunday',     // her kitchen calendar starts on Sunday
+  startView: 'weekly',     // page to open: 'weekly' (Week) or 'day' (One day, on today)
   font: 'system',          // 'system', 'atkinson' or 'serif' (docs/design-evidence.md: let her choose)
   size: 'standard',        // 'small' 15 px · 'standard' 17 px · 'large' 19 px · 'xlarge' 22 px
   spacing: 'comfortable',  // or 'spacious' (W3C COGA: let users adjust white space)
@@ -240,6 +241,8 @@ export function migrate(raw) {
     s.version = 5;
   }
   s.settings = { ...defaultSettings(), ...(s.settings || {}) };
+  // 'today' (v0.9.1, before One day replaced the Today screen) now opens One day.
+  s.settings.startView = ['day', 'today'].includes(s.settings.startView) ? 'day' : 'weekly';
   if (s.settings.large && !raw.settings?.size) s.settings.size = 'large'; // old "Larger text" switch
   // v0.10: the more accurate speech model becomes the default once (she can still choose the small one).
   if (!s.settings.modelV10) { s.settings.speechModel = DEFAULT_SPEECH_MODEL; s.settings.modelV10 = true; }

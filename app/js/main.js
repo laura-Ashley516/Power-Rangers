@@ -60,6 +60,7 @@ function applySettings() {
   $('reminderLead').value = s.lead;
   $('modelSelect').value = s.speechModel;
   $('weekStartSelect').value = s.weekStart || 'Sunday';
+  $('startViewSelect').value = s.startView === 'day' ? 'day' : 'weekly';
   $('fontSelect').value = s.font || 'system';
   $('spacingSelect').value = s.spacing || 'comfortable';
   document.body.classList.toggle('font-atkinson', s.font === 'atkinson');
@@ -185,6 +186,12 @@ $('fontSelect').onchange = (e) => { setting('font', e.target.value); toast(t('Fo
 $('spacingSelect').onchange = (e) => { setting('spacing', e.target.value); toast(t('Spacing saved.')); };
 
 $('themeSelect').onchange = (e) => { setting('theme', e.target.value); toast(t('Colours saved.')); };
+// Opening page (team feature, Nov 23): Week or One day when the planner starts. v0.10 has no Today screen,
+// so "Today" became "One day" (it opens on today); the Week | One day switch still works as usual.
+$('startViewSelect').onchange = (e) => {
+  setting('startView', e.target.value === 'day' ? 'day' : 'weekly');
+  toast(t('Opening page saved. This page will open next time.'));
+};
 $('weekStartSelect').onchange = (e) => {
   setting('weekStart', e.target.value);
   commit({ ...ctx.state, shownWeek: weekKey(ctx.weekOffset) }); // the week on screen keeps its activities under its new first day
@@ -405,6 +412,8 @@ document.addEventListener('pointercancel', (e) => endDrag(e, true));
 
 $('appVersion').textContent = `${t('Version')} ${APP_VERSION}`;
 renderGuide();
+// Opening page (Settings): Week or One day, whatever was on screen last time.
+ctx.state.settings.layout = ctx.state.settings.startView === 'day' ? 'day' : 'week';
 commit(ctx.state);
 updateClock();
 setInterval(() => { updateClock(); renderDaily(); }, 60000); // "Now" moves on through the day

@@ -574,6 +574,11 @@ export const FR = {
   'Your planner has a copy on the device (saved {date}). Put it back on this iPad?': 'Votre planificateur a une copie sur l’appareil (enregistrée le {date}). La remettre sur cet iPad?',
   'Your planner was put back from the device.': 'Votre planificateur a été remis à partir de l’appareil.',
 
+  // ---------- opening page (Nov 23) ----------
+  'Opening page': 'Page d’ouverture',
+  'Choose what opens when you start the planner. You can still switch with Week | One day at the top.': 'Choisissez ce qui s’ouvre au démarrage. Vous pouvez toujours changer avec Semaine | Une journée en haut.',
+  'Opening page saved. This page will open next time.': 'Page d’ouverture enregistrée. Elle s’ouvrira la prochaine fois.',
+
   // ---------- index.html (fixed text) ----------
   'My Week, My Way': 'Ma semaine, à ma façon',
   'Print': 'Imprimer',
