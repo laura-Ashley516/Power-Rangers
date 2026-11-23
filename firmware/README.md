@@ -4,7 +4,7 @@ ESP32 code for the portable reminder device (display, buttons, vibration, microp
 
 The Bluetooth and Wi-Fi messages must follow [docs/protocol.md](../docs/protocol.md). Change the protocol there first, together with the software team, then in the code.
 
-> **First try:** `accessible_scheduler_esp32_compact.ino` at the repo root is the team's first-try sketch (v0 protocol, display only). It is kept as a reference and is not changed. The new sketch below reuses its display code and look.
+> **Earlier sketches:** the first-try sketch (v0 protocol, display only) was removed from `main` by the team; the sketch below reuses its display code and look. The team's touch-screen sketch from `main` (ILI9341 + XPT2046 touch, Oct 23) is kept in [`device_sketch_v1/`](device_sketch_v1/) as a reference, renamed and with the client's name replaced (privacy rule: no names in the code, and the Bluetooth name is visible to anyone nearby).
 
 ## The sketch: `pwr_device/`
 
