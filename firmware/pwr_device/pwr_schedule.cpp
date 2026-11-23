@@ -111,7 +111,7 @@ int timeFromText(const String &sIn) {
 
 String timeText(int16_t minutes) {
   if (minutes < 0) return "";
-  char buf[6];
+  char buf[12];   // room for any int16_t, so the compiler sees nothing can be cut
   snprintf(buf, sizeof(buf), "%d:%02d", minutes / 60, minutes % 60);
   return String(buf);
 }

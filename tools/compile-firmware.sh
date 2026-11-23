@@ -14,4 +14,4 @@ case "${1:-c5}" in
   classic) FQBN="esp32:esp32:esp32:PartitionScheme=huge_app" ;;
   *) echo "Usage: $0 [c5|classic]"; exit 1 ;;
 esac
-"$CLI" "${EXTRA[@]}" compile --warnings all --fqbn "$FQBN" "$ROOT/firmware/pwr_device"
+"$CLI" "${EXTRA[@]}" compile --clean --warnings all --fqbn "$FQBN" "$ROOT/firmware/pwr_device"

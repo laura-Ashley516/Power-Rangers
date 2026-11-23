@@ -628,7 +628,8 @@ export const FR = {
   'Wi-Fi from this iPad).': 'Wi-Fi depuis cet iPad).',
   'New code': 'Nouveau code',
   'Pairing code (already on a device? type it here)': 'Code de jumelage (déjà sur un appareil? tapez-le ici)',
-  'Relay (broker) address': 'Adresse du relais (courtier)',
+  'Relay address (from the relay account, e.g. abc123.ala.us-east-1.emqxsl.com)': 'Adresse du relais (du compte du relais, ex. abc123.ala.us-east-1.emqxsl.com)',
+  'abc123.ala.us-east-1.emqxsl.com': 'abc123.ala.us-east-1.emqxsl.com',
   'Relay username': 'Nom d’utilisateur du relais',
   'Relay password': 'Mot de passe du relais',
   'Save Wi-Fi setup': 'Enregistrer la configuration Wi-Fi',
@@ -716,5 +717,4 @@ export const FR = {
   'Energy key': 'Légende de l’énergie',
   'Later this week drop zone': 'Zone « Plus tard cette semaine »',
   'ABCD-EFGH-JKLM': 'ABCD-EFGH-JKLM',
-  'wss://example.com:8084/mqtt': 'wss://example.com:8084/mqtt',
 };

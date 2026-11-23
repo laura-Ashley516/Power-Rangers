@@ -19,6 +19,7 @@
 #include "pwr_storage.h"
 #include "pwr_display.h"
 
+#include <esp_idf_version.h>
 #include <driver/i2s.h>
 
 static const i2s_port_t MIC_PORT = I2S_NUM_0;
@@ -34,7 +35,6 @@ const int READ_SAMPLES  = 256;          // samples read per i2s_read() call
 
 static bool micOk = false;
 static int32_t rawSamples[READ_SAMPLES];   // 32-bit words from the mic
-static int16_t pcmSamples[READ_SAMPLES];   // 16-bit samples before compression
 
 const uint32_t WAV_HEADER_BYTES   = 60;     // RIFF + fmt (20 bytes) + fact + data headers
 const uint16_t ADPCM_BLOCK_BYTES  = 256;
@@ -146,8 +146,13 @@ bool recorderBegin() {
   cfg.channel_format = MIC_CHANNEL_FORMAT;
   cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
   cfg.intr_alloc_flags = 0;                          // default interrupt priority
+#if ESP_IDF_VERSION_MAJOR >= 5
+  cfg.dma_desc_num = DMA_BUF_COUNT;                  // ESP-IDF 5 (core 3.x, ESP32-C5): new names, same meaning
+  cfg.dma_frame_num = DMA_BUF_LEN;
+#else
   cfg.dma_buf_count = DMA_BUF_COUNT;
   cfg.dma_buf_len = DMA_BUF_LEN;
+#endif
   cfg.use_apll = false;
 
   esp_err_t err = i2s_driver_install(MIC_PORT, &cfg, 0, NULL);

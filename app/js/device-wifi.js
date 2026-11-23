@@ -75,6 +75,19 @@ async function mqttConnect() {
   return lib.connect || lib.default.connect;
 }
 
+// The relay address as typed in Settings: just its host (what the EMQX console shows, e.g.
+// "abc123.ala.us-east-1.emqxsl.com"), host:port, or a full wss:// address. The planner uses MQTT over
+// secure WebSocket: port 8084 and path /mqtt (EMQX) unless another port or path is given.
+export function brokerUrl(text) {
+  const t = String(text || '').trim();
+  if (!t) return '';
+  if (/^wss?:\/\//i.test(t)) return t;
+  if (/^(mqtts?|https?):\/\//i.test(t)) return brokerUrl(t.replace(/^[a-z]+:\/\//i, '').replace(/:\d+(?=\/|$)/, ''));
+  const m = /^([^/:]+)(?::(\d+))?(\/.*)?$/.exec(t);
+  if (!m) return '';
+  return `wss://${m[1]}:${m[2] || 8084}${m[3] || '/mqtt'}`;
+}
+
 export class MqttTransport {
   static supported() { return typeof WebSocket !== 'undefined' && !!globalThis.crypto?.subtle; }
 
@@ -90,10 +103,10 @@ export class MqttTransport {
   }
 
   async connect() {
-    const { broker, username, password } = this.wifi;
+    const { username, password } = this.wifi;
+    const broker = brokerUrl(this.wifi.broker);
     const code = normalizeCode(this.wifi.code);
     if (!broker || !code) throw new Error('Wi-Fi is not set up yet: fill in “Wi-Fi setup” below.');
-    if (!/^wss?:\/\//.test(broker)) throw new Error('The broker address must start with wss:// (secure WebSocket).');
     this.topics = topicsFor(await topicId(code));
     this.key = await e2eKey(code);
     const connect = this.connectFn || (await mqttConnect());

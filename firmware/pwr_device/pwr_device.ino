@@ -240,8 +240,9 @@ void updateToday() {
   }
 
   // Optional: the first-try behaviour (change day every few seconds).
+  // (written so the compiler sees no always-true test when AUTO_ROTATE_MS is 0)
   if (AUTO_ROTATE_MS > 0 && reminderPeriod < 0 && !messageShowing &&
-      millis() - lastAutoRotateMs >= AUTO_ROTATE_MS) {
+      millis() - lastAutoRotateMs > AUTO_ROTATE_MS - 1) {
     lastAutoRotateMs = millis();
     shownDay = (shownDay + 1) % NUM_DAYS;
     screenDirty = true;

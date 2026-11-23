@@ -76,7 +76,9 @@ The firmware **compiles with no errors and no warnings in our code** (`--warning
 | **ESP32-C5** (new board) | 3.3.12 | Huge APP (3 MB) | 1.84 MB (58 %) | 63 KB (19 %) |
 | ESP32 Dev Module (classic) | 2.0.17 | Huge APP (3 MB) | 1.88 MB (59 %) | 69 KB (21 %) |
 
-Run it yourself: `tools/compile-firmware.sh c5` (or `classic`). The default 1.2 MB app partition is **too small** (Bluetooth + Wi-Fi + TLS): always choose **Huge APP**.
+Run it yourself: `tools/compile-firmware.sh c5` (or `classic`); it builds from scratch (`--clean`), so warnings are never hidden by a cached build.
+
+**Wi-Fi relay:** the device trusts the root certificates of the common relays (EMQX, HiveMQ, Let's Encrypt, Amazon), so setting up a relay needs only its host name. Step by step: [docs/wifi-setup.md](../docs/wifi-setup.md). The default 1.2 MB app partition is **too small** (Bluetooth + Wi-Fi + TLS): always choose **Huge APP**.
 
 **Before flashing the C5:** the pins in `pwr_config.h` are the classic ESP32's. The C5 has GPIO 0–28 only (no 32 / 33) and different SPI pins: set the C5 pins from the real wiring (a build message reminds you). Compiling does not test the hardware: the boot self-test (`E2E self-test: PASS`), free memory, Bluetooth + Wi-Fi together and the microphone still need the board.
 

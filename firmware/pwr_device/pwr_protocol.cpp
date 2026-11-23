@@ -104,7 +104,7 @@ class RxCallbacks : public BLECharacteristicCallbacks {
     memcpy(item.text, value.c_str(), n);
     item.text[n] = '\0';
 
-    if (xQueueSend(rxQueue, &item, 0) != pdTRUE) droppedLines++;
+    if (xQueueSend(rxQueue, &item, 0) != pdTRUE) droppedLines = droppedLines + 1;   // (++ on a volatile is deprecated in C++20)
   }
 };
 
@@ -728,7 +728,9 @@ void protocolBegin() {
   txChar = service->createCharacteristic(
     TX_CHARACTERISTIC, BLECharacteristic::PROPERTY_NOTIFY
   );
-  txChar->addDescriptor(new BLE2902());
+#if !defined(CONFIG_BT_NIMBLE_ENABLED)
+  txChar->addDescriptor(new BLE2902());   // Bluedroid (classic ESP32, core 2.0.x); NimBLE (ESP32-C5) adds it by itself
+#endif
 
   service->start();
   BLEAdvertising *advertising = BLEDevice::getAdvertising();
@@ -751,7 +753,7 @@ bool protocolQueueLine(uint8_t source, const char *text, size_t len) {
   memcpy(item.text, text, len);
   item.text[len] = '\0';
   if (xQueueSend(rxQueue, &item, 0) != pdTRUE) {
-    droppedLines++;
+    droppedLines = droppedLines + 1;   // (++ on a volatile is deprecated in C++20)
     return false;
   }
   return true;

@@ -1,5 +1,7 @@
 # Wi-Fi sync plan (Prototype 2)
 
+> **Nov 2026 (v3):** built on both sides, with end-to-end encryption. Setup steps for the team: [wifi-setup.md](wifi-setup.md).
+
 > **Team decision (Oct 25):** the planner stays a web app (PWA). The device syncs over **Wi-Fi**, so the iPad can use the planner in plain **Safari** (no Bluefy). **Bluetooth stays as plan B** (it already works with Bluefy and with Chrome/Edge on a laptop).
 >
 > **Status (Oct 25):** app side done (v0.5.0): `MqttTransport` in `app/js/device-wifi.js`, Wi-Fi setup + pairing code on the Reminder device page, messages in [protocol.md](protocol.md#wi-fi-through-an-mqtt-broker). Tested with a pretend Wi-Fi device on a local broker ([run-and-test.md](run-and-test.md) §6). **Next:** a real broker account, the firmware side, end-to-end encryption.

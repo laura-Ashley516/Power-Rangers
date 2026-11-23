@@ -427,6 +427,8 @@ console.log('Planner copy on the device, encryption');
   const opened = await open(key, `pwr/${id}/app`, new TextEncoder().encode(sealed));
   check('decryption gives the line back', opened && new TextDecoder().decode(opened) === 'HELLO|3');
   check('a message for the other topic is refused', (await open(key, `pwr/${id}/dev`, new TextEncoder().encode(sealed))) === null);
+  const { brokerUrl } = await import('../js/device-wifi.js');
+  check('relay address: a host alone becomes the EMQX secure WebSocket address', brokerUrl('abc.ala.us-east-1.emqxsl.com') === 'wss://abc.ala.us-east-1.emqxsl.com:8084/mqtt' && brokerUrl('h.example:8884') === 'wss://h.example:8884/mqtt' && brokerUrl('wss://x:1/y') === 'wss://x:1/y' && brokerUrl('mqtts://h.example:8883') === 'wss://h.example:8084/mqtt');
   check('another pairing code cannot read it', (await open(await e2eKey('BCDE-FGHJ-KLMN'), `pwr/${id}/app`, new TextEncoder().encode(sealed))) === null);
 }
 console.log('Compression');

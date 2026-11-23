@@ -163,7 +163,7 @@ static void drawPeriodSection(int day, int period, int &y) {
 }
 
 static String formatTime(int minutesOfDay) {
-  char buf[8];
+  char buf[16];   // room for any int, so the compiler sees nothing can be cut
   snprintf(buf, sizeof(buf), "%d:%02d", minutesOfDay / 60, minutesOfDay % 60);
   return String(buf);
 }
