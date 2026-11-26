@@ -14,7 +14,7 @@ import { renderLibrary, activityForm, createAndScheduleActivity, openQuickAdd, o
 import { printWeek, printDay, printGuide, renderPrintArea } from './print.js';
 import { renderGuide } from './guide.js';
 import { openAppointmentCard } from './ui-appointment.js';
-import { connect, disconnect, sync, renderDemoPanel, renderConnection, wireConnection, scheduleAutoBackup, startNotePickup } from './ui-device.js';
+import { connect, disconnect, sync, renderDemoPanel, renderConnection, wireConnection, scheduleAutoBackup, startNotePickup, isDeviceBusy } from './ui-device.js';
 import { openVoiceModal } from './voice/recorder.js';
 import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCount, refreshWaiting } from './voice/inbox.js';
 import { preload, onStatus } from './voice/transcribe.js';
@@ -440,7 +440,7 @@ if ('serviceWorker' in navigator) {
     let reloading = false;
     let touched = false; // has she used the page since it was opened or brought back?
     ['pointerdown', 'keydown'].forEach((t) => document.addEventListener(t, () => { touched = true; }, { capture: true, passive: true }));
-    const busy = () => !!$('modalRoot')?.innerHTML;
+    const busy = () => !!$('modalRoot')?.innerHTML || isDeviceBusy();
     const applyUpdate = (reg, force = false) => {
       if (!reg.waiting || !navigator.serviceWorker.controller) return;
       if (!force && busy()) return;

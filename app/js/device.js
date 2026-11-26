@@ -200,6 +200,7 @@ export class DeviceLink {
     this.lines = [];
     this.waiter = null;
     this.version = null;
+    this.noteBatches = false;
     this.payload = null; // largest message the link carries in one packet (from HELLO); null = no limit known
     this.partial = [];   // bytes of a message arriving in "+" pieces
     transport.onPacket = (bytes) => this.receive(bytes);
@@ -250,12 +251,14 @@ export class DeviceLink {
   }
 
   async hello() {
+    this.noteBatches = false;
     try {
       this.lines = [];
       await this.t.send('HELLO|1'); // short enough for any packet size
-      const [, v, name, count, notes, payload] = (await this.until(['HELLO|'], this.t.helloTimeout || 2000)).split('|');
+      const [, v, name, count, notes, payload, features] = (await this.until(['HELLO|'], this.t.helloTimeout || 2000)).split('|');
       this.version = Number(v) || 1;
       this.payload = Number(payload) || null;
+      this.noteBatches = features?.split(',').includes('NOTE_BATCH') ?? false;
       return { version: this.version, name, scheduleCount: Number(count) || 0, notesCount: Number(notes) || 0, payload: this.payload };
     } catch (e) {
       if (this.t.needsV1) throw new Error('The device did not answer. Check that it is switched on and connected to Wi-Fi.');
@@ -328,21 +331,41 @@ export class DeviceLink {
 
   // Returns the note's bytes after checking size, every piece and the sum. Throws if anything is missing.
   async getNote(id, onProgress) {
-    const start = await this.command(`NOTE_GET|${id}`, ['DATA_START|'], 4000);
+    if (this.noteBatches) return this.getNoteInBatches(id, onProgress);
+    let start;
+    try {
+      start = await this.command(`NOTE_GET|${id}`, [`DATA_START|${id}|`], 4000);
+    } catch (error) {
+      throw new Error(`Note ${id}: waiting for recording to start. ${error.message}`, { cause: error });
+    }
     const [, , bytesText, chunksText] = start.split('|');
     const total = Number(bytesText), chunks = Number(chunksText);
-    const parts = new Array(chunks);
+    const parts = new Array(chunks).fill(null);
+    let received = 0;
     let endSum = null;
     for (;;) {
-      const line = await this.read(4000);
+      let line;
+      try {
+        line = await this.until(['D|', `DATA_END|${id}|`], 4000);
+      } catch (error) {
+        throw new Error(`Note ${id}: waiting for audio or end marker (${received}/${chunks} chunks received). ${error.message}`, { cause: error });
+      }
       if (line.startsWith('DATA_END|')) { endSum = Number(line.split('|')[2]); break; }
-      if (!line.startsWith('D|')) continue;
       const i = line.indexOf('|', 2);
       const seq = Number(line.slice(2, i));
+      if (i <= 2 || !Number.isInteger(seq) || seq < 0 || seq >= chunks || parts[seq]) continue;
       parts[seq] = fromBase64(line.slice(i + 1));
-      onProgress?.((seq + 1) / chunks);
+      received++;
+      onProgress?.(received / chunks);
     }
-    if (parts.some((p) => !p) || parts.length !== chunks) throw new Error('Some pieces of the note were missing.');
+    if (received !== chunks) {
+      const missing = [];
+      for (let i = 0; i < chunks; i++) {
+        if (!parts[i]) missing.push(i);
+      }
+      console.warn(`[AUDIO] Note ${id} missing chunks:`, missing);
+      throw new Error(`Note ${id}: missing ${missing.length} of ${chunks} audio chunks.`);
+    }
     const out = new Uint8Array(total);
     let offset = 0, sum = 0;
     for (const p of parts) { out.set(p, offset); offset += p.length; p.forEach((b) => (sum = (sum + b) % 65536)); }
@@ -350,7 +373,85 @@ export class DeviceLink {
     return out;
   }
 
-  async deleteNote(id) { await this.command(`NOTE_DEL|${id}`, ['OK|DEL']); }
+  async getNoteInBatches(id, onProgress) {
+    const batchSize = 8;
+    let batchPauseMs = 350;
+    const parts = [];
+    let total, chunks;
+    for (let first = 0; chunks === undefined || first < chunks;) {
+      let batch;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        let stage = 'waiting for DATA_START';
+        let receivedCount = 0;
+        try {
+          const start = await this.command(`NOTE_BATCH|${id}|${first}|${batchSize}`, [`DATA_START|${id}|`], 4000);
+          const [, , bytesText, chunksText] = start.split('|');
+          const size = Number(bytesText), count = Number(chunksText);
+          if (!Number.isSafeInteger(size) || !Number.isSafeInteger(count) || count <= first || size < count ||
+              (total !== undefined && (size !== total || count !== chunks))) {
+            throw new Error('Invalid recording size.');
+          }
+          total = size;
+          chunks = count;
+          const length = Math.min(batchSize, chunks - first);
+          const received = new Array(length).fill(null);
+          stage = 'waiting for batch audio or DATA_BATCH_END';
+          const endPrefix = `DATA_BATCH_END|${id}|${first}|`;
+          let expectedSum;
+          for (;;) {
+            const line = await this.until(['D|', endPrefix], 4000);
+            if (line.startsWith(endPrefix)) {
+              expectedSum = Number(line.slice(endPrefix.length));
+              break;
+            }
+            const separator = line.indexOf('|', 2);
+            const index = Number(line.slice(2, separator)) - first;
+            if (separator <= 2 || !Number.isInteger(index) || index < 0 || index >= length || received[index]) continue;
+            const bytes = fromBase64(line.slice(separator + 1));
+            if (bytes.length) {
+              received[index] = bytes;
+              receivedCount++;
+            }
+          }
+          stage = 'validating batch';
+          const missing = length - receivedCount;
+          if (missing) throw new Error(`${missing} of ${length} chunks missing.`);
+          let sum = 0;
+          for (const part of received) for (const byte of part) sum = (sum + byte) & 0xffff;
+          if (sum !== expectedSum) throw new Error('Batch checksum did not match.');
+          batch = received;
+          break;
+        } catch (error) {
+          const message = `Note ${id}, batch starting at chunk ${first + 1}, attempt ${attempt}, ${stage} (${receivedCount} chunks received): ${error.message}`;
+          if (attempt === 3 || !this.t.connected) throw new Error(message, { cause: error });
+          console.warn('[AUDIO]', message);
+          batchPauseMs = 500;
+          await sleep(1000 * attempt);
+        }
+      }
+      parts.push(...batch);
+      first += batch.length;
+      onProgress?.(first / chunks);
+      if (first < chunks) await sleep(batchPauseMs);
+    }
+    const size = parts.reduce((sum, part) => sum + part.length, 0);
+    if (size !== total) throw new Error(`Note ${id}: received ${size} of ${total} bytes.`);
+    const out = new Uint8Array(total);
+    let offset = 0;
+    for (const part of parts) {
+      out.set(part, offset);
+      offset += part.length;
+    }
+    return out;
+  }
+
+  async deleteNote(id) {
+    try {
+      await this.command(`NOTE_DEL|${id}`, [`OK|DEL|${id}`]);
+    } catch (error) {
+      throw new Error(`Note ${id}: saved locally, but deletion was not confirmed. ${error.message}`, { cause: error });
+    }
+  }
 
   // ---------- v3: a full copy of the planner kept on the device (docs/protocol.md) ----------
   // bytes: the planner, gzip-compressed (store.packState). The device stores them without reading them.

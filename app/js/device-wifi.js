@@ -127,16 +127,36 @@ export class MqttTransport {
     });
     // Decrypt in order (a chain), so lines arrive in the order the device sent them.
     let chain = Promise.resolve();
+    const incoming = { received: 0, delivered: 0, rejected: 0 };
     client.on('message', (topic, payload) => {
       if (topic === this.topics.toApp) {
+        incoming.received++;
         chain = chain.then(async () => {
           const line = await open(this.key, topic, payload);
-          if (line) this.onPacket?.(line); else console.warn('Wi-Fi: a message that was not from the paired device was ignored.');
+          if (line) {
+            this.onPacket?.(line);
+            incoming.delivered++;
+          } else {
+            incoming.rejected++;
+            console.warn('[MQTT] Could not authenticate a device message.', { ...incoming });
+          }
+        }).catch((error) => {
+          incoming.rejected++;
+          console.error('[MQTT] Device message handler failed.', { ...incoming }, error.name);
         });
       }
       else if (topic === this.topics.status) { this.deviceOnline = String(payload) === 'online'; this.onStatus?.(this.deviceOnline); }
     });
-    client.on('close', () => { if (this.open) { this.open = false; this.onDisconnect?.(); } });
+    client.on('error', (error) => {
+      if (this.open) console.warn('[MQTT] Connection error.', { ...incoming }, error.code || error.name);
+    });
+    client.on('close', () => {
+      if (this.open) {
+        console.warn('[MQTT] Connection closed.', { ...incoming });
+        this.open = false;
+        this.onDisconnect?.();
+      }
+    });
     await client.subscribeAsync([this.topics.toApp, this.topics.status], { qos: 1 });
     this.open = true;
     await new Promise((r) => setTimeout(r, 400)); // the retained "online"/"offline" usually arrives right away

@@ -303,6 +303,7 @@ export const FR = {
   ' (first-try firmware: schedule only)': ' (premier micrologiciel : horaire seulement)',
   'Reminder device connected.': 'Appareil de rappel connecté.',
   'No device selected': 'Aucun appareil choisi',
+  'The reminder device is busy. Try again in a moment.': 'L’appareil de rappel est occupé. Réessayez dans un instant.',
   'Connection failed: {error}': 'Échec de la connexion : {error}',
   'Connecting…': 'Connexion…',
   'Not synced. Connect the device first.': 'Pas synchronisé. Connectez d’abord l’appareil.',

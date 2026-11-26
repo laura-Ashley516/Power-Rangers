@@ -16,6 +16,23 @@ import { toPlayableWav, wavInfo, encodeImaAdpcmWav } from './voice/wav.js';
 import { processAll, renderVoiceView, updateCount, refreshWaiting } from './voice/inbox.js';
 
 let link = null;
+let deviceBusy = false;
+export const isDeviceBusy = () => deviceBusy;
+
+async function withDevice(operation, onBusy = () => undefined) {
+  if (deviceBusy) return onBusy();
+  deviceBusy = true;
+  try {
+    const locks = useWifi() ? globalThis.navigator?.locks : null;
+    if (locks) {
+      return await locks.request('pwr-device', { ifAvailable: true }, (lock) =>
+        lock ? operation() : onBusy());
+    }
+    return await operation();
+  } finally {
+    deviceBusy = false;
+  }
+}
 
 const useDemo = () => !!ctx.state.settings.demoDevice;
 const useWifi = () => !useDemo() && ctx.state.settings.connection === 'wifi';
@@ -33,7 +50,13 @@ function setConnected(on, msg) {
   $('deviceBadge').classList.toggle('good', on);
 }
 
-export async function connect() {
+export function connect() {
+  return withDevice(connectDevice, () => {
+    $('syncStatus').textContent = t('The reminder device is busy. Try again in a moment.');
+  });
+}
+
+async function connectDevice() {
   const transport = makeTransport();
   if (!useDemo() && !useWifi() && !BleTransport.supported()) {
     setConnected(false, t('Bluetooth is not available in this browser'));
@@ -77,14 +100,18 @@ async function keepAwake() {
 
 export async function sync() {
   const out = $('syncStatus');
-  const lock = await keepAwake();
-  try { await runSync(out); } finally { lock?.release?.().catch(() => {}); }
+  return withDevice(async () => {
+    const lock = await keepAwake();
+    try { await runSync(out); } finally { lock?.release?.().catch(() => {}); }
+  }, () => {
+    out.textContent = t('The reminder device is busy. Try again in a moment.');
+  });
 }
 
 async function runSync(out) {
   if (!link || !link.t.connected) {
     out.textContent = t('Connecting…');
-    if (!(await connect())) { out.textContent = t('Not synced. Connect the device first.'); return; }
+    if (!(await connectDevice())) { out.textContent = t('Not synced. Connect the device first.'); return; }
   }
   try {
     const info = await link.hello(); // also refreshes counts and the packet size
@@ -257,13 +284,12 @@ export function wireConnection() {
 // anything (Wi-Fi set up, the demo device, or Bluetooth already connected), the whole planner is copied to it.
 // Over Wi-Fi it is end-to-end encrypted (device-wifi.js); the device keeps the copy and the one before it.
 let backupTimer = null;
-let backupRunning = false;
 const BACKUP_DELAY_MS = 20000;
 
 const wifiReady = () => ctx.state.settings.connection === 'wifi' && ctx.state.settings.wifi?.broker && normalizeCode(ctx.state.settings.wifi?.code);
 
 export function scheduleAutoBackup() {
-  if (isDemo()) return; // demo-mode changes are not her data
+  if (isDemo() || !ctx.state.touched || (link?.t.connected && link.version < 3)) return;
   if (ctx.state.deviceBackup?.sig === backupSig(ctx.state)) return;
   clearTimeout(backupTimer);
   backupTimer = setTimeout(runAutoBackup, BACKUP_DELAY_MS);
@@ -273,30 +299,40 @@ async function quietLink() {
   if (link?.t.connected) return link;
   if (!useDemo() && !wifiReady()) return null; // Bluetooth needs her tap to connect: wait for the next Sync
   const transport = makeTransport();
-  await transport.connect();
-  if (useWifi() && transport.deviceOnline === false) { transport.disconnect(); return null; }
-  const l = new DeviceLink(transport);
-  l.info = await l.hello();
-  link = l;
-  transport.onDisconnect = () => { link = null; };
-  return l;
+  try {
+    await transport.connect();
+    if (useWifi() && transport.deviceOnline === false) { transport.disconnect(); return null; }
+    const l = new DeviceLink(transport);
+    l.info = await l.hello();
+    link = l;
+    transport.onDisconnect = () => { if (link === l) link = null; };
+    return l;
+  } catch (error) {
+    transport.disconnect();
+    throw error;
+  }
 }
 
 export async function runAutoBackup() {
-  if (backupRunning || isDemo()) return false;
-  backupRunning = true;
-  try {
-    const l = await quietLink();
-    if (!l || !(l.version >= 3)) return false;
-    const sig = backupSig(ctx.state);
-    await l.sendState(await packState(ctx.state));
-    ctx.state.deviceBackup = { at: Date.now(), sig };
-    renderBackupLine();
-    return true;
-  } catch (e) {
-    console.warn('Automatic copy to the device not done this time:', e.message); // tried again after the next change
+  if (isDemo() || !ctx.state.touched) return false;
+  return withDevice(async () => {
+    try {
+      const l = await quietLink();
+      if (!l || l.version < 3) return false;
+      const sig = backupSig(ctx.state);
+      if (ctx.state.deviceBackup?.sig === sig) return true;
+      await l.sendState(await packState(ctx.state));
+      ctx.state.deviceBackup = { at: Date.now(), sig };
+      renderBackupLine();
+      return true;
+    } catch (error) {
+      console.warn('Automatic copy to the device not done this time:', error.message);
+      return false;
+    }
+  }, () => {
+    scheduleAutoBackup();
     return false;
-  } finally { backupRunning = false; }
+  });
 }
 
 // The save line in the top bar shows when the device last got a copy (main.js draws the rest).
@@ -304,15 +340,45 @@ export function renderBackupLine() { document.dispatchEvent(new CustomEvent('pwr
 
 // Copy every voice note waiting on the device, check it, then let the device delete it. Returns how many.
 async function collectNotes(l, onProgress) {
+  console.log("[SYNC] Requesting note list");
   const notes = await l.listNotes();
+  console.log("[SYNC] Available notes:", notes);
+
   let collected = 0;
   for (const n of notes) {
-    const bytes = await l.getNote(n.id, (p) => onProgress?.(collected + 1, notes.length, Math.round(p * 100)));
-    const audio = toPlayableWav(bytes.buffer); // unpack the device's compressed audio
-    await saveNote({ source: 'device', bytes: audio.buffer, mime: audio.mime, recordedAt: n.time ? n.time * 1000 : Date.now() });
-    await l.deleteNote(n.id);
-    collected++;
+    console.log(`[SYNC] Starting note ${n.id}`);
+
+    try {
+      const bytes = await l.getNote(n.id, (p) => {
+        onProgress?.(collected + 1, notes.length, Math.round(p * 100));
+      });
+
+      console.log(`[SYNC] Note ${n.id} received`);
+      console.log("[SYNC] Received bytes:", bytes.length);
+
+      const audio = toPlayableWav(bytes.buffer);
+      console.log("[SYNC] WAV conversion successful");
+
+      await saveNote({
+        source: 'device',
+        bytes: audio.buffer,
+        mime: audio.mime,
+        recordedAt: n.time ? n.time * 1000 : Date.now()
+      });
+      console.log(`[SYNC] Note ${n.id} saved locally`);
+
+      console.log("[SYNC] Sending deletion request");
+      await l.deleteNote(n.id);
+      console.log(`[SYNC] Note ${n.id} acknowledged`);
+
+      collected++;
+      console.log(`[SYNC] Completed ${collected}/${notes.length} notes`);
+    } catch (error) {
+      console.error(`[SYNC] Failed on note ${n.id}:`, error);
+      throw error;
+    }
   }
+
   return collected;
 }
 
@@ -320,23 +386,29 @@ async function collectNotes(l, onProgress) {
 // While the planner is open and Wi-Fi is set up, it looks for new notes on the device every few minutes, so she
 // never has to press Sync: they are understood on this iPad and wait for her one-tap OK ("Do them" on the week).
 const NOTE_CHECK_MS = 3 * 60 * 1000;
-let checking = false;
+let pickupStarted = false;
 export function startNotePickup() {
+  if (pickupStarted) return;
+  pickupStarted = true;
   const check = async () => {
-    if (checking || document.visibilityState !== 'visible' || isDemo() || !wifiReady()) return;
-    checking = true;
-    try {
-      const l = await quietLink();
-      if (!l || !(l.version >= 1)) return;
-      const got = await collectNotes(l);
-      if (got) {
-        updateCount();
-        await processAll();
-        refreshWaiting();
+    if (document.visibilityState !== 'visible' || isDemo() || !wifiReady()) return;
+    await withDevice(async () => {
+      const wakeLock = await keepAwake();
+      try {
+        const l = await quietLink();
+        if (!l || l.version < 1) return;
+        if (await collectNotes(l)) {
+          updateCount();
+          await processAll();
+          refreshWaiting();
+          renderVoiceView();
+        }
+      } catch (error) {
+        console.warn('Voice notes not picked up this time:', error.message);
+      } finally {
+        wakeLock?.release?.().catch(() => {});
       }
-    } catch (e) {
-      console.warn('Voice notes not picked up this time:', e.message); // tried again in a few minutes
-    } finally { checking = false; }
+    });
   };
   setInterval(check, NOTE_CHECK_MS);
   document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'visible') setTimeout(check, 5000); });
