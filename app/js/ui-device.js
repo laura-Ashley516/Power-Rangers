@@ -16,6 +16,10 @@ import { toPlayableWav, wavInfo, encodeImaAdpcmWav } from './voice/wav.js';
 import { processAll, renderVoiceView, updateCount, refreshWaiting } from './voice/inbox.js';
 
 let link = null;
+
+// Step-by-step sync messages for the team, shown in the browser console only when switched on:
+// localStorage.setItem('pwr-debug', '1') (and removeItem to switch off). Warnings and errors always show.
+const debugLog = (...args) => { try { if (localStorage.getItem('pwr-debug')) console.log(...args); } catch (e) { /* storage blocked */ } };
 let deviceBusy = false;
 export const isDeviceBusy = () => deviceBusy;
 
@@ -167,7 +171,7 @@ async function runSync(out) {
 
     // 2. Voice notes: copy each one, check it, then let the device delete it.
     const collected = await collectNotes(link, (i, n, p) => { out.textContent = t('Collecting voice note {i} of {n}… {p} % (keep this screen open)', { i, n, p }); });
-    out.textContent = `${t('Synced at {time}.', { time: fmtTime(new Date()) })} ${weekMsg}${collected ? ' ' + t(collected > 1 ? '{n} voice notes collected.' : '{n} voice note collected.', { n: collected }) : ''}`;
+    out.textContent = `${t('Synced at {time}.', { time: fmtTime(new Date()).replace(/\.$/, '') })} ${weekMsg}${collected ? ' ' + t(collected > 1 ? '{n} voice notes collected.' : '{n} voice note collected.', { n: collected }) : ''}`;
     renderDemoPanel();
     updateCount();
 
@@ -340,24 +344,24 @@ export function renderBackupLine() { document.dispatchEvent(new CustomEvent('pwr
 
 // Copy every voice note waiting on the device, check it, then let the device delete it. Returns how many.
 async function collectNotes(l, onProgress) {
-  console.log("[SYNC] Requesting note list");
+  debugLog("[SYNC] Requesting note list");
   const notes = await l.listNotes();
-  console.log("[SYNC] Available notes:", notes);
+  debugLog("[SYNC] Available notes:", notes);
 
   let collected = 0;
   for (const n of notes) {
-    console.log(`[SYNC] Starting note ${n.id}`);
+    debugLog(`[SYNC] Starting note ${n.id}`);
 
     try {
       const bytes = await l.getNote(n.id, (p) => {
         onProgress?.(collected + 1, notes.length, Math.round(p * 100));
       });
 
-      console.log(`[SYNC] Note ${n.id} received`);
-      console.log("[SYNC] Received bytes:", bytes.length);
+      debugLog(`[SYNC] Note ${n.id} received`);
+      debugLog("[SYNC] Received bytes:", bytes.length);
 
       const audio = toPlayableWav(bytes.buffer);
-      console.log("[SYNC] WAV conversion successful");
+      debugLog("[SYNC] WAV conversion successful");
 
       await saveNote({
         source: 'device',
@@ -365,14 +369,14 @@ async function collectNotes(l, onProgress) {
         mime: audio.mime,
         recordedAt: n.time ? n.time * 1000 : Date.now()
       });
-      console.log(`[SYNC] Note ${n.id} saved locally`);
+      debugLog(`[SYNC] Note ${n.id} saved locally`);
 
-      console.log("[SYNC] Sending deletion request");
+      debugLog("[SYNC] Sending deletion request");
       await l.deleteNote(n.id);
-      console.log(`[SYNC] Note ${n.id} acknowledged`);
+      debugLog(`[SYNC] Note ${n.id} acknowledged`);
 
       collected++;
-      console.log(`[SYNC] Completed ${collected}/${notes.length} notes`);
+      debugLog(`[SYNC] Completed ${collected}/${notes.length} notes`);
     } catch (error) {
       console.error(`[SYNC] Failed on note ${n.id}:`, error);
       throw error;

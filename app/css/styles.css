@@ -33,14 +33,15 @@
   --gap-group: 28px;         /* between groups */
   --font: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   /* One type scale: every text size is a step of the base size chosen in Settings → Text size.
-     Steps are close together (ratio about 1.12) so nothing looks shouty; the smallest step is 88 % of the base. */
+     Body text stays calm and close in size; headings step up by about 1.25× each (v0.10.2, design check: with
+     1.12× steps titles did not stand out, and a clear title helps her see where she is). Smallest step: 88 % of the base. */
   --base: 17px;              /* Standard = Apple's default body size (17 pt) */
   --fs-s: .88em;             /* labels, dates, notes */
   --fs-card: .92em;          /* activity names in the week */
   --fs-m: .94em;
-  --fs-l: 1.12em;            /* section titles */
-  --fs-xl: 1.26em;           /* big activity on Today */
-  --fs-xxl: 1.42em;          /* page titles */
+  --fs-l: 1.25em;            /* section titles */
+  --fs-xl: 1.4em;            /* big activity */
+  --fs-xxl: 1.75em;          /* page titles */
   --fs-num: 1.42em;          /* date numbers in the week */
   color-scheme: light;
 }
@@ -510,6 +511,11 @@ body[data-theme="dim"] .budget.over .budget-fill { background: #ff6b5e; }
 
 /* Top bar: save line and language */
 .save-line { font-size: var(--fs-s); color: var(--muted); }
+/* "Listening for Hey Cal": a quiet label with a small dot; the dot is filled while the microphone listens. */
+.wake-indicator { min-height: 44px; padding: 6px 12px; border-radius: 999px; font-size: var(--fs-s); color: var(--muted); background: var(--surface); border: 1px solid var(--line); }
+.wake-indicator::before { content: ""; display: inline-block; width: .6em; height: .6em; margin-right: .45em; border-radius: 50%; border: 1.5px solid currentColor; vertical-align: .05em; }
+.wake-indicator.on { color: var(--ink); background: var(--accent-soft); }
+.wake-indicator.on::before { background: var(--accent); border-color: var(--accent); }
 .save-line.warn { color: var(--high-ink); font-weight: 600; }
 .lang-btn { min-height: 44px; }
 .nav-count.warn { background: var(--high-mark); color: #fff; }

@@ -142,7 +142,10 @@ function noSoundHelp() {
     : t('The microphone sent no sound. Check that the browser is allowed to use the microphone and that the right microphone is selected.');
 }
 
-export function openVoiceModal() {
+// opts.autoStart: opened by the wake word ("Hey Cal"), so recording starts at once (it stops by itself after silence).
+// (As a button handler it receives a click event: that is not autoStart.)
+export function openVoiceModal(opts) {
+  const autoStart = opts?.autoStart === true;
   const modal = showPanelModal(t('Voice note'), `
     <p>${t('Say what to change, for example:')} <em>${t('“Add a doctor appointment on Thursday at 2 pm”')}</em>, <em>${t('“Move the vacuuming to Friday”')}</em> ${t('or')} <em>${t('“Cancel hang laundry”')}</em>.</p>
     <div class="record-area">
@@ -232,6 +235,8 @@ export function openVoiceModal() {
       }
     }, 250);
   };
+
+  if (autoStart) setTimeout(() => $('recBtn')?.click(), 150);
 
   $('applyTyped').onclick = () => {
     const text = $('typedCommand').value.trim();

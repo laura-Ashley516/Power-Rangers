@@ -13,7 +13,7 @@
 // Track: A - Interface
 
 import { ctx } from './context.js';
-import { remindersFor } from './rules.js';
+import { remindersFor, remindersOnIpad } from './rules.js';
 import { $, esc, dayName, dateKey } from './ui-kit.js';
 import { scheduleFor } from './ui-week.js';
 import { iconFor } from './icons.js';
@@ -44,10 +44,13 @@ function show(r, { buzz = true } = {}) {
   if (buzz && !r.quiet && navigator.userActivation?.hasBeenActive) navigator.vibrate?.([300, 300, 300, 300, 300]);
 }
 
+// iPad reminders on? (rule in rules.js: her choice, else on until a reminder device has been synced)
+export const appRemindersOn = (state = ctx.state) => remindersOnIpad(state);
+
 export function checkReminders() {
   const el = $('reminderBanner');
   if (!el) return;
-  if (ctx.state.settings.appReminders === false) { el.innerHTML = ''; shown = null; return; }
+  if (!appRemindersOn()) { el.innerHTML = ''; shown = null; return; }
   if (shown) return; // one at a time, until she presses OK
   const now = new Date();
   const mins = now.getHours() * 60 + now.getMinutes();

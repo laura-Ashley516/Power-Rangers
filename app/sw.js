@@ -7,7 +7,7 @@
 //
 // Track: B - Data + device
 
-const CACHE = 'pwr-app-0.10.1';
+const CACHE = 'pwr-app-0.10.2';
 const RUNTIME = 'pwr-runtime';
 const APP_FILES = [
   './', './index.html', './manifest.json', './css/styles.css', './css/fonts.css',
@@ -16,7 +16,7 @@ const APP_FILES = [
   './js/main.js', './js/config.js', './js/context.js', './js/store.js', './js/rules.js', './js/ui-kit.js',
   './js/ui-week.js', './js/ui-appointment.js', './js/i18n.js', './js/i18n-fr.js', './js/icons.js', './js/reminders.js', './js/photo.js', './js/photo-parse.js', './js/tutorial.js', './js/guide.js', './js/ui-daily.js', './js/ui-library.js', './js/ui-device.js', './js/print.js', './js/device.js', './js/device-wifi.js',
   './js/voice/parser.js', './js/voice/transcribe.js', './js/voice/whisper-worker.js', './js/voice/notes.js',
-  './js/voice/recorder.js', './js/voice/inbox.js', './js/voice/wav.js',
+  './js/voice/recorder.js', './js/voice/wakeword.js', './js/voice/wakeword-core.js', './models/wake/word.json', './js/voice/inbox.js', './js/voice/wav.js',
 ];
 
 self.addEventListener('install', (event) => {

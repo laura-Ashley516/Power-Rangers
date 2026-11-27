@@ -580,6 +580,22 @@ export const FR = {
   'Choose what opens when you start the planner. You can still switch with Week | One day at the top.': 'Choisissez ce qui s’ouvre au démarrage. Vous pouvez toujours changer avec Semaine | Une journée en haut.',
   'Opening page saved. This page will open next time.': 'Page d’ouverture enregistrée. Elle s’ouvrira la prochaine fois.',
 
+  // ---------- "Hey Cal" wake word, automatic iPad reminders (v0.10.2) ----------
+  'This browser cannot listen for the wake word.': 'Ce navigateur ne peut pas écouter le mot d’éveil.',
+  'Getting ready…': 'Préparation…',
+  'Listening for the wake word could not start: {error}': 'L’écoute du mot d’éveil n’a pas pu démarrer : {error}',
+  'Tap to listen for “{word}”': 'Touchez pour écouter « {word} »',
+  'Listening for “{word}”': 'À l’écoute de « {word} »',
+  '“{word}” paused': '« {word} » en pause',
+  'Listening for “{word}” (test word until “Hey Cal” is trained).': 'À l’écoute de « {word} » (mot de test en attendant que « Hey Cal » soit entraîné).',
+  'Listening for “{word}”.': 'À l’écoute de « {word} ».',
+  'The same reminders as the device, at the same times, while the planner is open. Automatic: on until the reminder device is synced, then off, so you never get two at once. Tap to choose yourself.': 'Les mêmes rappels que l’appareil, aux mêmes heures, quand le planificateur est ouvert. Automatique : activé jusqu’à la première synchronisation de l’appareil, puis désactivé, pour ne jamais en recevoir deux à la fois. Touchez pour choisir vous-même.',
+  'Listen for “Hey Cal”': 'Écouter « Hey Cal »',
+  'Say “Hey Cal” and a voice note starts. Works only while the planner is open and on screen. Understood on this iPad, nothing is sent online. Uses some battery.': 'Dites « Hey Cal » et une note vocale commence. Fonctionne seulement quand le planificateur est ouvert et à l’écran. Compris sur cet iPad, rien n’est envoyé en ligne. Utilise un peu de batterie.',
+  'Listen for Hey Cal': 'Écouter Hey Cal',
+  'The microphone is blocked for the planner. On iPad: Settings → Safari → Microphone → Allow (or Ask), then tap the “Hey Cal” label at the top.': 'Le microphone est bloqué pour le planificateur. Sur iPad : Réglages → Safari → Microphone → Autoriser (ou Demander), puis touchez l’étiquette « Hey Cal » en haut.',
+  'Microphone blocked: tap for help': 'Microphone bloqué : touchez pour de l’aide',
+
   // ---------- index.html (fixed text) ----------
   'My Week, My Way': 'Ma semaine, à ma façon',
   'Print': 'Imprimer',

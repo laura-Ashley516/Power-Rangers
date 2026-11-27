@@ -383,6 +383,11 @@ console.log('Photo, reminders, French');
   const rem = remindersFor ? remindersFor(rs, 'Monday', [], 60) : [];
   check('reminders: the morning block 60 min before 9:00, and Physio 60 min before 10:30', rem.length === 2 && rem[0].at === 8 * 60 && rem[0].items.length === 1 && rem[1].at === 9 * 60 + 30);
   check('reminders: rest and "no reminder" activities are left out', !rem.some((r) => r.items.some((a) => a.id === 'c' || a.id === 'd')));
+  const { remindersOnIpad } = await import('../js/rules.js');
+  const plan = (appReminders, synced) => ({ settings: { appReminders }, deviceSync: synced ? { at: 1 } : undefined });
+  check('iPad reminders: automatic = on before any device sync, off after (never two at once)', remindersOnIpad(plan(null, false)) === true && remindersOnIpad(plan(null, true)) === false);
+  check('iPad reminders: her own choice always wins', remindersOnIpad(plan(true, true)) === true && remindersOnIpad(plan(false, false)) === false);
+  check('iPad reminders: the old default "on" becomes automatic, a new planner starts automatic', migrate({ ...fresh(), settings: { ...fresh().settings, appReminders: true, remindersAuto: undefined } }).settings.appReminders === null && fresh().settings.appReminders === null);
 
   // Pictures and French texts
   check('pictures: chosen from the name, whole words only', iconId({ name: 'Change bed and towels' }) === 'bed' && iconId({ name: 'Hang laundry' }) === 'laundry' && iconId({ name: 'Rendez-vous médical' }) === 'medical' && iconId({ name: 'Lunch with a friend' }) === 'coffee');

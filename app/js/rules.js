@@ -429,3 +429,11 @@ export function remindersFor(schedule, day, library, lead = 60) {
   return out.sort((x, y) => x.at - y.at);
 }
 
+
+// iPad reminders on? Her choice if she made one (true / false); otherwise automatic: on until a reminder device
+// has been synced, then off, because the device reminds her itself (team decision, Nov 2026: never two at once).
+export function remindersOnIpad(state) {
+  const choice = state.settings.appReminders;
+  if (choice === true || choice === false) return choice;
+  return !state.deviceSync?.at;
+}

@@ -20,7 +20,8 @@ import { renderVoiceView, renderBanner, handleVoiceClick, processAll, updateCoun
 import { preload, onStatus } from './voice/transcribe.js';
 import { onNotesChanged } from './voice/notes.js';
 import { t, tDay, dayInText, setLang, translatePage, fmtDate, fmtTime, tPeriod } from './i18n.js';
-import { startReminders, checkReminders, redrawReminder } from './reminders.js';
+import { startReminders, checkReminders, redrawReminder, appRemindersOn } from './reminders.js';
+import { initWakeWord, setWakeWord } from './voice/wakeword.js';
 import { openPhoto } from './photo.js';
 import { maybeStartTutorial, openTutorial } from './tutorial.js';
 import { isDemo, setDemo, resetDemo } from './store.js';
@@ -73,7 +74,8 @@ function applySettings() {
   $('langSelect').value = s.lang;
   $('langBtn').textContent = s.lang === 'fr' ? 'English' : 'Français';
   $('langBtn').setAttribute('lang', s.lang === 'fr' ? 'en' : 'fr');
-  $('appRemindToggle').setAttribute('aria-checked', s.appReminders !== false);
+  $('appRemindToggle').setAttribute('aria-checked', appRemindersOn());
+  $('wakeToggle').setAttribute('aria-checked', !!s.wakeWord);
   $('demoModeToggle').setAttribute('aria-checked', isDemo());
   $('demoBanner').classList.toggle('hidden', !isDemo());
   renderSaveLine();
@@ -169,7 +171,8 @@ $('langBtn').onclick = () => setLanguage(ctx.state.settings.lang === 'fr' ? 'en'
 $('langSelect').onchange = (e) => setLanguage(e.target.value);
 $('tutorialBtn').onclick = openTutorial;
 $('helpTutorialBtn').onclick = openTutorial;
-$('appRemindToggle').onclick = () => { setting('appReminders', ctx.state.settings.appReminders === false); checkReminders(); };
+$('appRemindToggle').onclick = () => { setting('appReminders', !appRemindersOn()); checkReminders(); };
+$('wakeToggle').onclick = () => setWakeWord(!ctx.state.settings.wakeWord); // a tap: also what the iPad needs to start the microphone
 $('demoModeToggle').onclick = () => {
   if (!isDemo() && !confirm(t('Turn on demo mode? Visitors see an example week. Your own planner is kept apart, unchanged, and comes back when demo mode is off.'))) return;
   setDemo(!isDemo());
@@ -419,6 +422,7 @@ updateClock();
 setInterval(() => { updateClock(); renderDaily(); }, 60000); // "Now" moves on through the day
 startReminders();
 startNotePickup(); // over Wi-Fi: the device's voice notes arrive by themselves
+initWakeWord(() => openVoiceModal({ autoStart: true })); // "Hey Cal" (only if she turned it on)
 maybeStartTutorial();
 updateCount();
 refreshWaiting();
