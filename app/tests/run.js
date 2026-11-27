@@ -113,12 +113,14 @@ check('...and undo of the stop makes it weekly again, still one card', names(app
 const store = {};
 globalThis.localStorage = { getItem: (k) => (k in store ? store[k] : null), setItem: (k, v) => { store[k] = String(v); }, removeItem: (k) => { delete store[k]; } };
 const oldSave = { ...JSON.parse(JSON.stringify(st)), version: 4, appVersion: '0.8.5' };
-delete oldSave.series; delete oldSave.weeks;
+delete oldSave.series; delete oldSave.weeks; delete oldSave.touched; // as saved before v0.10
 store['pwr-planner'] = JSON.stringify(oldSave);
 const loadedSave = load();
 check('an update keeps a safety copy of the save exactly as it was', safetyCopies().length === 1 && /before an update/.test(safetyCopies()[0].reason) && safetyCopies()[0].data === JSON.stringify(oldSave));
 check('the save opens normally after the update', loadedSave.version === 5 && loadedSave.appVersion === APP_VERSION && !!findItem(loadedSave.schedule, 's1'));
 check('a new planner opens on Week by default', fresh().settings.startView === 'weekly');
+check('a planner saved before v0.10 counts as hers (copied to the device, never replaced from it)', loadedSave.touched === true);
+check('a brand-new example planner stays untouched, even once saved', fresh().touched === false && migrate(JSON.parse(JSON.stringify(fresh()))).touched === false);
 check('an older saved planner opens on Week by default', loadedSave.settings.startView === 'weekly');
 save({ ...loadedSave, settings: { ...loadedSave.settings, startView: 'day' } });
 check('the One day opening preference is saved and reloaded', load().settings.startView === 'day');

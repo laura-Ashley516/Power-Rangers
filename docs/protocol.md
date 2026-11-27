@@ -76,6 +76,20 @@ dev → OK|DEL|<id>
 - If anything is missing or the sum is wrong, the app simply asks `NOTE_GET|<id>` again. The note is only deleted after `NOTE_DEL`.
 - The device sends chunks with a small pause (≈ 10 ms) so the phone/iPad can keep up.
 
+### Voice notes in batches (optional feature, Nov 26 2026)
+Used by the ESP32-C5 touch-screen sketch (`firmware/C5_Planner_Integration`), which sends notes over Wi-Fi in small batches so the relay and the iPad keep up.
+```
+dev → HELLO|1|<deviceName>|<scheduleCount>|<notesCount>|<payload>|NOTE_BATCH   (7th field: comma-separated features)
+
+app → NOTE_BATCH|<id>|<firstChunk>|<count>          (count 1–32; the app asks 8 at a time)
+dev → DATA_START|<id>|<bytes>|<chunks>                (the whole note's size and chunk count, every batch)
+dev → D|<seq>|<base64>                                (seq = firstChunk … firstChunk+count−1, absolute)
+dev → DATA_BATCH_END|<id>|<firstChunk>|<sum16>        (sum of this batch's raw bytes, modulo 65536)
+```
+- The app asks the next batch only after checking this one; a missing chunk or a wrong sum → the same batch again (3 tries). `NOTE_DEL|<id>` only after the whole note is saved on the iPad.
+- A device without `NOTE_BATCH` in `HELLO` gets `NOTE_GET` as before. Bad request → `ERR|NOTE|batch`.
+- That sketch answers `HELLO|1`: no clock times, no quiet times and no planner copy (v2/v3) yet; the app sends it the v1 lines.
+
 ### Clock time of an activity (v2, Nov 2026)
 ```
 app → Monday|Morning|Physio|yellow|10:30   (a 5th field: HH:MM, 24 h, local time)

@@ -1,6 +1,6 @@
 # Team update: planner v0.10 + device firmware v3 (Nov 23, 2026)
 
-Branch: `aridj/project-structure` (pushed). Everything from `main`, `day-1`, `my_week_my_way` and `feature/opening-page-preference` is merged into it. Test site (the client's Home Screen icon): v0.10 published.
+Branch: the project-structure branch (pushed). Everything from `main`, `day-1`, `my_week_my_way` and `feature/opening-page-preference` is merged into it. Test site (the client's Home Screen icon): v0.10 published.
 
 ## What is new
 

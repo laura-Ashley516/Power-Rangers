@@ -186,6 +186,7 @@ export function fresh() {
     weeks: {},
     settings: defaultSettings(),
     changeLog: [],
+    touched: false, // a new example planner: may be replaced by her planner kept on the device (v3)
     updatedAt: Date.now(),
   };
   if (getLang() === 'fr') {
@@ -241,6 +242,9 @@ export function migrate(raw) {
     s.version = 5;
   }
   s.settings = { ...defaultSettings(), ...(s.settings || {}) };
+  // A saved planner from before v0.10 is her real planner: "touched" (so it is copied to the device and never
+  // offered a "put back" from it). Only a brand-new example planner (fresh(): touched false) is untouched.
+  if (s.touched === undefined) s.touched = true;
   // 'today' (v0.9.1, before One day replaced the Today screen) now opens One day.
   s.settings.startView = ['day', 'today'].includes(s.settings.startView) ? 'day' : 'weekly';
   if (s.settings.large && !raw.settings?.size) s.settings.size = 'large'; // old "Larger text" switch
